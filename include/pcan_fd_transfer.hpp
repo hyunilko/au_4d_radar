@@ -8,8 +8,8 @@ extern "C" {
 #include "PCANBasic.h"
 }
 
-#include "pcan_short_frame.h"
 #include "pcan_long_frame.hpp"
+#include "pcan_short_frame.hpp"
 
 class PcanFdTransfer
 {
@@ -29,12 +29,12 @@ public:
         uint8_t device_count = 4u;
 
         /* Short frame CAN IDs */
-        uint16_t tx_base_id = 0x700u; /* PC -> S32 short */
-        uint16_t rx_base_id = 0x750u; /* S32 -> PC short */
+        uint16_t short_tx_base_id = 0x700u; /* PC -> S32 short */
+        uint16_t short_rx_base_id = 0x750u; /* S32 -> PC short */
 
         /* Long(CustomTP) CAN IDs */
-        uint16_t long_tx_base_id = 0x500u; /* PC -> S32 long */
-        uint16_t long_rx_base_id = 0x550u; /* S32 -> PC long */
+        uint16_t long_tx_base_id = 0x500u;  /* PC -> S32 long */
+        uint16_t long_rx_base_id = 0x550u;  /* S32 -> PC long */
 
         bool brs_on = true;
         bool quiet = false;
@@ -59,9 +59,10 @@ public:
                                   uint8_t payload_len);
     bool send_time_sync(uint8_t dev_id);
 
-    /* S32 -> PC : drain rx queue, route short/long */
+    /* S32 -> PC : drain RX queue and route short/long */
     void poll_rx(void);
 
+    /* RX callback registration */
     void set_rx_callback(RxCallback cb);
     void set_short_rx_callback(ShortRxCallback cb);
 
@@ -71,17 +72,17 @@ private:
 
     static uint8_t len_to_dlc(uint8_t len);
     static uint8_t dlc_to_len(uint8_t dlc);
+    static void print_pcan_err(const char* tag, TPCANStatus st);
 
     bool send_data(uint16_t can_id, const uint8_t* data, uint8_t length);
     bool send_frame64(uint16_t can_id, const uint8_t data64[64]);
-
-    static void print_pcan_err(const char* tag, TPCANStatus st);
 
 private:
     Config cfg_;
     bool initialized_{false};
 
     std::mutex io_mtx_;
+
     std::unique_ptr<PcanShortFrame> short_frame_;
     std::unique_ptr<PcanLongFrame> long_frame_;
 };

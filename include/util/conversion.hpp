@@ -184,6 +184,10 @@ public:
         return value;
     }
 
+    static inline float convertToFloat(const uint8_t* buffer) {
+        return *((float *)buffer);
+    }    
+
     static inline uint32_t pointer_to_address(void *ptr)
     {
         const uintptr_t addr = (uintptr_t)ptr;

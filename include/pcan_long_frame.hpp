@@ -7,6 +7,15 @@
 
 class PcanFdTransfer;
 
+struct PcanLongFrameConfig
+{
+    uint16_t tx_base_id = 0x500u; /* PC -> S32 long */
+    uint16_t rx_base_id = 0x550u; /* S32 -> PC long */
+    uint8_t device_count = 4u;
+    size_t rx_buf_size = 64u * 1024u;
+    bool quiet = false;
+};
+
 class PcanLongFrame
 {
 public:
@@ -16,19 +25,12 @@ public:
                                           uint32_t msg_id,
                                           std::vector<uint8_t>&& payload)>;
 
-    struct Config
-    {
-        uint16_t tx_base_id = 0x500u; /* PC -> S32 long */
-        uint16_t rx_base_id = 0x550u; /* S32 -> PC long */
-        uint8_t device_count = 4u;
-        size_t rx_buf_size = 64u * 1024u;
-        bool quiet = false;
-    };
+    using Config = PcanLongFrameConfig;
 
-    explicit PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg = {});
+    explicit PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
 
-    bool send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
-    bool on_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
+    bool send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
+    bool handle_long_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
 
     void set_rx_callback(RxCallback cb);
 
@@ -50,8 +52,9 @@ private:
     };
 
     bool is_long_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const;
-    void process_tp_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
+    void process_long_tp_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
+private:
     PcanFdTransfer& pcan_;
     Config cfg_;
     RxCallback rx_cb_;

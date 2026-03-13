@@ -48,8 +48,8 @@ add_library(device_au_radar_node SHARED
   src/message_parse.cpp
   src/radar_can_packet_handler.cpp
   src/pcan_fd_transfer.cpp
-  src/can_short_frame.cpp
-  src/can_long_frame.cpp  
+  src/pcan_short_frame.cpp
+  src/pcan_long_frame.cpp  
   src/heart_beat.cpp
   src/adm_tf_listener.cpp)
 

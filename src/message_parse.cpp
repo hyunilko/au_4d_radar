@@ -48,23 +48,23 @@ void MessageParser::makeRadarPointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::P
     const double deg2rad = M_PI / 180.0f;
     static constexpr size_t POINT_STEP_SIZE = 20;
 
-    header.ui32UID = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32TS = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TS = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32TN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32FN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32FN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
     header.f32CT = Conversion::convertToFloat(&p_buff[idx]);
     idx += 4;
-    header.ui32TPN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TPN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32PN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32PN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui16TPCKN = Conversion::LeToU16(&p_buff[idx]);
+    header.ui16TPCKN = Conversion::le_to_u16(&p_buff[idx]);
     idx += 2;
-    header.ui16PCKN = Conversion::LeToU16(&p_buff[idx]);
+    header.ui16PCKN = Conversion::le_to_u16(&p_buff[idx]);
     idx += 2;
 
     if(header.ui32PN > 60 ||  header.ui32TPN > 1600 || header.ui16TPCKN > 28 || header.ui16PCKN > 28) {
@@ -125,7 +125,7 @@ void MessageParser::makeRadarPointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::P
     // std::cout << "Rotation Matrix: \n" << rotation_matrix << std::endl;
 
     for (uint32_t i = 0; i < header.ui32PN; i++) {
-        //uint32_t index = Conversion::LeToU32(&p_buff[idx]);
+        //uint32_t index = Conversion::le_to_u32(&p_buff[idx]);
         idx += 4;
         float range = Conversion::convertToFloat(&p_buff[idx]);
         idx += 4;
@@ -177,23 +177,23 @@ void MessageParser::makeRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan
     tsPacketHeader header = {};
     std::stringstream ss;
 
-    header.ui32UID = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32TS = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TS = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32TN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32FN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32FN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
     header.f32CT = Conversion::convertToFloat(&p_buff[idx]);
     idx += 4;
-    header.ui32TPN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32TPN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui32PN = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32PN = Conversion::le_to_u32(&p_buff[idx]);
     idx += 4;
-    header.ui16TPCKN = Conversion::LeToU16(&p_buff[idx]);
+    header.ui16TPCKN = Conversion::le_to_u16(&p_buff[idx]);
     idx += 2;
-    header.ui16PCKN = Conversion::LeToU16(&p_buff[idx]);
+    header.ui16PCKN = Conversion::le_to_u16(&p_buff[idx]);
     idx += 2;
 
     if(header.ui32PN > 60 ||  header.ui32TPN > 1600 || header.ui16TPCKN > 28 || header.ui16PCKN > 28) {
@@ -226,7 +226,7 @@ void MessageParser::makeRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan
     for(uint32_t i = 0; i < header.ui32PN; i++)
     {
         radar_msgs::msg::RadarReturn return_msg;
-        // uint32_t index = Conversion::LeToU32(&p_buff[idx]);
+        // uint32_t index = Conversion::le_to_u32(&p_buff[idx]);
         idx += 4;
         return_msg.range = Conversion::convertToFloat(&p_buff[idx]);
         idx += 4;
@@ -253,7 +253,7 @@ void MessageParser::makeRadarTracksMsg(uint8_t *p_buff, radar_msgs::msg::RadarTr
     tsPacketHeader header = {};
     std::stringstream ss;
 
-    header.ui32UID = Conversion::LeToU32(&p_buff[idx]);
+    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
     ss << std::hex << header.ui32UID;
     frame_id_ = ss.str();
 

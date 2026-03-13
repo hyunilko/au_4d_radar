@@ -18,7 +18,7 @@
 #include "util/yamlParser.hpp"
 #include "radar_can_packet_handler.hpp"
 
-#include "pcan_fd_transfer.h"
+#include "pcan_fd_transfer.hpp"
 
 #define BUFFER_SIZE     2048
 #define MSG_TYPE_OFFSET 4
@@ -101,8 +101,8 @@ bool RadarCanPacketHandler::initialize()
     PcanFdTransfer::Config cfg;
     cfg.handle       = PCAN_USBBUS1;
     cfg.device_count = 4;
-    cfg.tx_base_id   = 0x600;   // PC -> S32
-    cfg.rx_base_id   = 0x650;   // S32 -> PC (현재 S32 app_can_send 구현 기준)
+    cfg.long_tx_base_id = 0x500;   // PC -> S32
+    cfg.long_rx_base_id = 0x550;   // S32 -> PC (현재 S32 app_can_send 구현 기준)
     cfg.brs_on       = true;
     cfg.quiet        = true;
 

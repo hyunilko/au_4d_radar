@@ -1,5 +1,5 @@
 /**
- * @file    pcan_short_frame.h
+ * @file    pcan_short_frame.hpp
  * @author  AU
  * @date    2026.03
  * @brief   Short CAN Frame Handler (PC side)
@@ -26,57 +26,43 @@ class PcanFdTransfer;
 /* S32R45 command IDs (command_def.h 기준) */
 enum class ShortCanCmd : uint32_t
 {
-    RESET               = 0x10110100u,
-    SENSOR_START        = 0x10110203u,
-    SENSOR_STOP         = 0x10110302u,
-    HI                  = 0x10FF04EBu,
-    HEART_BEAT          = 0x10AB4842u,
-    TIME_SYNC           = 0x10AB5453u,
-    REQUEST_CONNECTION  = 0x41551003u,
+    RESET              = 0x10110100u,
+    SENSOR_START       = 0x10110203u,
+    SENSOR_STOP        = 0x10110302u,
+    HI                 = 0x10FF04EBu,
+    HEART_BEAT         = 0x10AB4842u,
+    TIME_SYNC          = 0x10AB5453u,
+    REQUEST_CONNECTION = 0x41551003u,
 };
 
-/*
- * dev_id  : source device index (0 ~ device_count-1)
- * cmd     : received command ID
- * uniq_id : parsed unique ID if present in bytes[4..7], otherwise 0
- * data    : bytes after UNIQ_ID (if present). For simple ACK, this is usually empty.
- */
-using ShortFrameRxCallback = std::function<void(
-    uint8_t dev_id,
-    ShortCanCmd cmd,
-    uint32_t uniq_id,
-    const std::vector<uint8_t>& data)>;
+using ShortFrameRxCallback = std::function<void(uint8_t dev_id,
+                                                ShortCanCmd cmd,
+                                                uint32_t uniq_id,
+                                                const std::vector<uint8_t>& data)>;
+
+struct PcanShortFrameConfig
+{
+    uint16_t tx_base_id = 0x700u; /* PC -> S32 */
+    uint16_t rx_base_id = 0x750u; /* S32 -> PC */
+    uint8_t device_count = 4u;
+    bool quiet = false;
+};
 
 class PcanShortFrame
 {
 public:
-    struct Config
-    {
-        uint16_t tx_base_id   = 0x700u;  /* PC  -> S32 */
-        uint16_t rx_base_id   = 0x750u;  /* S32 -> PC  */
-        uint8_t  device_count = 4u;
-    };
+    using Config = PcanShortFrameConfig;
 
-    explicit PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg = {});
+    explicit PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
 
-    bool send_cmd(uint8_t dev_id, ShortCanCmd cmd);
-    bool send_cmd_with_data(uint8_t dev_id,
-                            ShortCanCmd cmd,
-                            const uint8_t* payload,
-                            uint8_t payload_len);
+    bool send_short_command(uint8_t dev_id, ShortCanCmd cmd);
+    bool send_short_command_with_data(uint8_t dev_id,
+                                      ShortCanCmd cmd,
+                                      const uint8_t* payload,
+                                      uint8_t payload_len);
+    bool send_short_time_sync(uint8_t dev_id);
 
-    /*
-     * S32 update_system_time_from_can() expected payload:
-     *   [tv_sec(4B BE)][tv_nsec(4B BE)]
-     */
-    bool send_time_sync(uint8_t dev_id);
-
-    /*
-     * Called by PcanFdTransfer::poll_rx()
-     * @return true  : handled as short frame
-     *         false : not a short-frame CAN ID
-     */
-    bool on_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
+    bool handle_short_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
 
     void set_rx_callback(ShortFrameRxCallback cb);
 
@@ -85,8 +71,8 @@ private:
     void process_short_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
 private:
-    PcanFdTransfer&     pcan_;
-    Config              cfg_;
+    PcanFdTransfer& pcan_;
+    Config cfg_;
     ShortFrameRxCallback rx_cb_;
-    std::mutex          mtx_;
+    std::mutex mtx_;
 };
