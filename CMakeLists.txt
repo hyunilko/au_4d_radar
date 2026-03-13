@@ -47,6 +47,7 @@ add_library(device_au_radar_node SHARED
   src/util/yamlParser.cpp
   src/message_parse.cpp
   src/radar_can_packet_handler.cpp
+  src/pcan_short_frame_handler.cpp
   src/pcan_fd_transfer.cpp
   src/pcan_short_frame.cpp
   src/pcan_long_frame.cpp  

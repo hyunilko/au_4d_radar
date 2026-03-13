@@ -132,54 +132,6 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
                     extra_len);
     }
 
-    switch (cmd) {
-        case ShortCanCmd::HI:
-            if (!cfg_.quiet) {
-                RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                            "[Short RX] HI ACK from dev=%u uniq_id=0x%08X",
-                            dev_id,
-                            uniq_id);
-            }
-            break;
-
-        case ShortCanCmd::TIME_SYNC:
-            if (!cfg_.quiet) {
-                RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                            "[Short RX] TIME_SYNC ACK from dev=%u uniq_id=0x%08X",
-                            dev_id,
-                            uniq_id);
-            }
-            break;
-
-        case ShortCanCmd::HEART_BEAT:
-            if (!cfg_.quiet) {
-                RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                            "[Short RX] HEART_BEAT ACK from dev=%u uniq_id=0x%08X",
-                            dev_id,
-                            uniq_id);
-            }
-            break;
-
-        case ShortCanCmd::REQUEST_CONNECTION:
-        case ShortCanCmd::SENSOR_START:
-        case ShortCanCmd::SENSOR_STOP:
-        case ShortCanCmd::RESET:
-            if (!cfg_.quiet) {
-                RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                            "[Short RX] CMD ACK 0x%08X from dev=%u",
-                            cmd_raw,
-                            dev_id);
-            }
-            break;
-
-        default:
-            RCLCPP_WARN(rclcpp::get_logger("PcanShortFrame"),
-                        "[Short RX] Unknown cmd=0x%08X from dev=%u",
-                        cmd_raw,
-                        dev_id);
-            break;
-    }
-
     std::lock_guard<std::mutex> lk(mtx_);
     if (rx_cb_) {
         rx_cb_(dev_id, cmd, uniq_id, extra);
@@ -210,9 +162,6 @@ bool PcanShortFrame::send_short_time_sync(uint8_t dev_id)
     return send_short_command_with_data(dev_id, ShortCanCmd::TIME_SYNC, payload, sizeof(payload));
 }
 
-
-/* PcanFdTransfer short wrapper implementations */
-/*
 void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
 {
     if (short_frame_) {
@@ -243,4 +192,3 @@ bool PcanFdTransfer::send_time_sync(uint8_t dev_id)
         ? short_frame_->send_short_time_sync(dev_id)
         : false;
 }
-*/

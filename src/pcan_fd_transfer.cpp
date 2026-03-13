@@ -1,10 +1,10 @@
-#include "pcan_fd_transfer.hpp"
-
 #include <cstring>
 #include <unistd.h>
 
 #include "rclcpp/rclcpp.hpp"
 #include "util/conversion.hpp"
+
+#include "pcan_fd_transfer.hpp"
 
 PcanFdTransfer::PcanFdTransfer(const Config& cfg)
     : cfg_(cfg)

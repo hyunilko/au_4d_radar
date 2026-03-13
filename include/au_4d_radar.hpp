@@ -7,13 +7,12 @@
 #include "mon_msgs/msg/radar_health.hpp"
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "heart_beat.hpp"
+#include "pcan_short_frame_handler.hpp"
 #include "radar_can_packet_handler.hpp"
 #include "adm_tf_listener.hpp"
 
 namespace au_4d_radar
 {
-    const std::string DEFAULT_IP = "255.255.255.255" ;    // "255.255.255.255" "192.168.10.238"
 
     class device_au_radar_node: public rclcpp::Node
     {
@@ -24,7 +23,8 @@ namespace au_4d_radar
         void publishRadarScanMsg(radar_msgs::msg::RadarScan &radar_scan_msg);
         void publishRadarTrackMsg(radar_msgs::msg::RadarTracks &radar_tracks_msg);
 
-        Heartbeat heart_beat_;
+        PcanFdTransfer can_fd_transfer_;
+        PcanShortFrameHandler can_short_handler_;
         RadarCanPacketHandler radar_handler_;
         AdmTFListener adm_tf_listener_;
 
