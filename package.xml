@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>au_4d_radar</name>
+  <version>1.0.0</version>
+  <description>AU 4D radar node</description>
+  <maintainer email="antonioko@au-sensor.com">hyunil.ko</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <build_depend>rclcpp</build_depend>
+  <build_depend>rclcpp_components</build_depend>
+  <build_depend>rcutils</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>nav_msgs</build_depend>
+  <build_depend>radar_msgs</build_depend>
+  <build_depend>mon_msgs</build_depend>
+  <build_depend>flatbuffers</build_depend>
+  <build_depend>yaml-cpp</build_depend>
+  <build_depend>ament_index_cpp</build_depend>
+
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>rcutils</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>radar_msgs</exec_depend>
+  <exec_depend>mon_msgs</exec_depend>
+  <exec_depend>flatbuffers</exec_depend>
+  <exec_depend>yaml-cpp</exec_depend>
+  <exec_depend>ament_index_cpp</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>launch</test_depend>
+  <test_depend>launch_testing</test_depend>
+  <test_depend>launch_testing_ros</test_depend>
+  <test_depend>launch_testing_ament_cmake</test_depend>
+  <test_depend>rmw_implementation_cmake</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
