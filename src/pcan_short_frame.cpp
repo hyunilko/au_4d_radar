@@ -48,7 +48,7 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
         payload_len = SHORT_MAX_BYTES;
     }
 
-    uint8_t frame[CMD_FIELD_LEN + SHORT_MAX_BYTES] = {0u, };
+    uint8_t frame[CMD_FIELD_LEN + UNIQ_ID_LEN + SHORT_MAX_BYTES] = {0u, };
     Conversion::u32_to_be(static_cast<uint32_t>(cmd), &frame[0]);
     Conversion::u32_to_be(uniq_id, &frame[4]);
 
@@ -128,9 +128,9 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
     const std::vector<uint8_t> payload(data + payload_offset, data + payload_offset + payload_len);
 
     if (!cfg_.quiet) {
-        RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                    "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%u",
-                    dev_id, cmd_raw, uniq_id, payload_len);
+       // RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
+       //             "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%u",
+       //             dev_id, cmd_raw, uniq_id, payload_len);
     }
 
     std::lock_guard<std::mutex> lk(mtx_);
@@ -146,7 +146,7 @@ void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
     }
 }
 /* PcanFdTransfer long wrapper implementations */
-bool PcanFdTransfer::send_short_cmd_with_data(uint8_t dev_id,
+bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id,
                                               ShortCanCmd cmd,
                                               uint32_t uniq_id,
                                               const uint8_t* payload,

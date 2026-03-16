@@ -104,12 +104,11 @@ bool RadarCanPacketHandler::initialize()
     point_cloud2_setting_ = YamlParser::readPointCloud2Setting("POINT_CLOUD2");
     message_number_       = YamlParser::readMessageNumber("MESSAGE_NUMBER");
 
-    // ✅ CAN init
     PcanFdTransfer::Config cfg;
     cfg.handle       = PCAN_USBBUS1;
     cfg.device_count = 4;
     cfg.long_tx_base_id = 0x500;   // PC -> S32
-    cfg.long_rx_base_id = 0x550;   // S32 -> PC (현재 S32 app_can_send 구현 기준)
+    cfg.long_rx_base_id = 0x550;   // S32 -> PC
     cfg.brs_on       = true;
     cfg.quiet        = true;
 
@@ -125,8 +124,6 @@ bool RadarCanPacketHandler::initialize()
     short_frame_handler_ = std::make_unique<PcanShortFrameHandler>(radar_node_, *can_);
     short_frame_handler_->start();
 
-    // ✅ 수신된 TP 메시지 payload를 message_queue_에 push
-    // (새 pcan_fd_transfer: dev_id, frame_id, frame_count, payload)
     can_->set_rx_callback([this](uint8_t dev_id,
                                  uint32_t frame_id,
                                  uint32_t frame_count,

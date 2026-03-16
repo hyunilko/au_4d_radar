@@ -27,7 +27,7 @@ void PcanShortFrameHandler::start(void)
 
     if (!quiet_)
     {
-        RCLCPP_INFO(logger_, "PcanShortFrameHandler started");
+        //RCLCPP_INFO(logger_, "PcanShortFrameHandler started");
     }
 }
 
@@ -74,9 +74,7 @@ bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
         {
             RCLCPP_WARN(logger_,
                         "wait_for_ack timeout dev=%u cmd=0x%08X timeout_ms=%lld",
-                        dev_id,
-                        static_cast<uint32_t>(cmd),
-                        static_cast<long long>(timeout.count()));
+                        dev_id, static_cast<uint32_t>(cmd), static_cast<long long>(timeout.count()));
         }
         return false;
     }
@@ -103,7 +101,7 @@ PcanShortFrameHandler::AckKey PcanShortFrameHandler::make_ack_key(uint8_t dev_id
     return (static_cast<AckKey>(dev_id) << 32) | static_cast<uint32_t>(cmd);
 }
 
-void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
+void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
     AckMessage msg;
     msg.dev_id = dev_id;
@@ -127,8 +125,7 @@ void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, ui
 
     if (!quiet_)
     {
-        RCLCPP_INFO(logger_,
-                    "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
+        RCLCPP_INFO(logger_, "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
                     dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
     }
 
@@ -141,21 +138,21 @@ void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, ui
 void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
 
-    RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
-                "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%lu",
-                dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
+  //  RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
+  //              "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%lu",
+  //              dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
 
     switch (cmd)
     {
         case ShortCanCmd::HI:
-            handle_short_ack(dev_id, cmd, uniq_id, data);
+            handle_cmd_ack(dev_id, cmd, uniq_id, data);
             break;
 
         case ShortCanCmd::TIME_SYNC:
             break;
 
         case ShortCanCmd::HEART_BEAT:
-            send_short_time_sync(dev_id, uniq_id);
+            send_time_sync(dev_id, uniq_id);
             break;
 
         case ShortCanCmd::SENSOR_START:
@@ -176,12 +173,11 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, 
 
 }
 
-bool PcanShortFrameHandler::send_short_time_sync(uint8_t dev_id, uint32_t uniq_id)
+bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
 {
     struct timespec ts{};
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-        RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
-                     "send_short_time_sync: clock_gettime failed");
+        RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrameHandler"), "send_time_sync: clock_gettime failed");
         return false;
     }
 
@@ -197,23 +193,16 @@ bool PcanShortFrameHandler::send_short_time_sync(uint8_t dev_id, uint32_t uniq_i
     struct tm tm_info{};
     char time_str[64] = {0, };
 
-    localtime_r(&sec, &tm_info);
+    gmtime_r(&sec, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
     if (!quiet_) {
-        RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-                    "send_short_time_sync: Time: %s, ns=%llu, dev=%u, uniq_id=0x%08X",
-                    time_str,
-                    static_cast<unsigned long long>(server_ns),
-                    dev_id,
-                    uniq_id);
+        RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
+                    "send_time_sync: Time: %s, dev=%u, uniq_id=0x%08X",
+                    time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }
 
-    return can_.send_short_cmd_with_data(dev_id,
-                                         ShortCanCmd::TIME_SYNC,
-                                         uniq_id,
-                                         payload,
-                                         sizeof(payload));
+    return can_.send_cmd_with_data(dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
 }
 
 

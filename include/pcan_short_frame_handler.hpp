@@ -57,9 +57,9 @@ namespace au_4d_radar
         using AckKey = std::uint64_t;
 
         static AckKey make_ack_key(uint8_t dev_id, ShortCanCmd cmd);
-        void handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
+        void handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
         void handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
-        bool send_short_time_sync(uint8_t dev_id, uint32_t uniq_id);                            
+        bool send_time_sync(uint8_t dev_id, uint32_t uniq_id);                            
 
         PcanFdTransfer& can_;
         rclcpp::Logger logger_;
