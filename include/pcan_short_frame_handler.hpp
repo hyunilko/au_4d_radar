@@ -25,7 +25,7 @@ namespace au_4d_radar
             uint8_t dev_id = 0u;
             ShortCanCmd cmd = ShortCanCmd::HI;
             uint32_t uniq_id = 0u;
-            std::vector<uint8_t> extra;
+            std::vector<uint8_t> payload;
             std::chrono::steady_clock::time_point rx_time{};
         };
 
@@ -48,9 +48,7 @@ namespace au_4d_radar
         bool send_sensor_stop(uint8_t dev_id, const uint8_t* payload = nullptr, uint8_t payload_len = 0u);
         bool send_reset(uint8_t dev_id, const uint8_t* payload = nullptr, uint8_t payload_len = 0u);
 
-        bool wait_for_ack(uint8_t dev_id,
-                        ShortCanCmd cmd,
-                        AckMessage& out,
+        bool wait_for_ack(uint8_t dev_id, ShortCanCmd cmd, AckMessage& out,
                         std::chrono::milliseconds timeout = std::chrono::milliseconds(1000));
 
         bool get_device_uniq_id(uint8_t dev_id, uint32_t& uniq_id_out) const;
@@ -59,10 +57,9 @@ namespace au_4d_radar
         using AckKey = std::uint64_t;
 
         static AckKey make_ack_key(uint8_t dev_id, ShortCanCmd cmd);
-        void handle_short_ack(uint8_t dev_id,
-                            ShortCanCmd cmd,
-                            uint32_t uniq_id,
-                            const std::vector<uint8_t>& data);
+        void handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
+        void handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
+        bool send_short_time_sync(uint8_t dev_id, uint32_t uniq_id);                            
 
         PcanFdTransfer& can_;
         rclcpp::Logger logger_;

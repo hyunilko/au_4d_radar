@@ -15,11 +15,7 @@ PcanFdTransfer::PcanFdTransfer(const Config& cfg)
 
     long_frame_ = std::make_unique<PcanLongFrame>(
         *this,
-        PcanLongFrame::Config{cfg_.long_tx_base_id,
-                              cfg_.long_rx_base_id,
-                              cfg_.device_count,
-                              cfg_.rx_buf_size,
-                              cfg_.quiet});
+        PcanLongFrame::Config{cfg_.long_tx_base_id, cfg_.long_rx_base_id, cfg_.device_count, cfg_.rx_buf_size, cfg_.quiet});
 }
 
 PcanFdTransfer::~PcanFdTransfer()
@@ -197,6 +193,10 @@ void PcanFdTransfer::poll_rx(void)
         const uint8_t data_len = dlc_to_len(rx.DLC);
         const uint32_t can_id = static_cast<uint32_t>(rx.ID);
 
+        // RCLCPP_INFO(rclcpp::get_logger("PcanFdTransfer"),
+        //             "PcanFdTransfer::poll_rx() CAN ID: 0x%03X len=%u",
+        //             can_id, data_len);
+
         if (short_frame_ && short_frame_->handle_short_can_frame(can_id, rx.DATA, data_len)) {
             continue;
         }
@@ -208,8 +208,7 @@ void PcanFdTransfer::poll_rx(void)
         if (!cfg_.quiet) {
             RCLCPP_WARN(rclcpp::get_logger("PcanFdTransfer"),
                         "Unknown CAN ID: 0x%03X len=%u",
-                        can_id,
-                        data_len);
+                        can_id, data_len);
         }
     }
 }

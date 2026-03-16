@@ -56,7 +56,7 @@ namespace au_4d_radar
 {
 
 Heartbeat::Heartbeat(device_au_radar_node* node)
-    : recv_sockfd(-1), send_sockfd(-1), running(true), radar_node_(node) {}
+    : recv_sockfd(-1), send_sockfd(-1), running(false), radar_node_(node) {}
 
 Heartbeat::~Heartbeat() {
     stop();
@@ -95,47 +95,18 @@ bool Heartbeat::initialize() {
     return true;
 }
 
-void Heartbeat::processHeartbeatMessage(const uint8_t* buffer, const std::string& receivedIp) {
-    auto Heartbeat = AU::GetHeartbeat(&buffer[PAYLOAD_OFFSET]);
-    if (!Heartbeat) {
-        RCLCPP_ERROR(rclcpp::get_logger("Heartbeat"), "Failed to decode Heartbeat message.");
-        return;
-    }
+void Heartbeat::checkConnectionLoss() {
+    const uint64_t now = static_cast<uint64_t>(std::time(nullptr));
 
-    std::string hostname = Heartbeat->client_hostname()->str();
-    if (clientHostname.starts_with(hostname.substr(0, 7))) {
-        mon_msgs::msg::RadarHealth radar_health_msg;
-        time_t raw_time = static_cast<time_t>(Heartbeat->timestamp());
-        struct tm* timeinfo = localtime(&raw_time);
-        char time_str[64];
-        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", timeinfo);
-        setClientIp(hostname, receivedIp);
-
-        radar_health_msg.client_hostname = hostname;
-        radar_health_msg.status = Heartbeat->status();
-        radar_health_msg.tv_sec = Heartbeat->timestamp();
-        last_heartbeat_ts_[hostname] = Heartbeat->timestamp();
-
-        // RCLCPP_DEBUG(radar_node_->get_logger(), "heart_beat:: hostname: %s status: %u time: %s",
-        //             radar_health_msg.client_hostname.c_str(), radar_health_msg.status, time_str);
-#ifdef DEBUG_BUILD
-        auto temps = Heartbeat->temp_tx_rfes();
-        if (temps && temps->size() >= 4) {
-            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) temperature a53_core = %.2f, tx_rfes = %.2f, %.2f, %.2f, %.2f",
-                hostname.c_str(), Heartbeat->temp_a53_cores(), temps->Get(0), temps->Get(1), temps->Get(2), temps->Get(3));
-        } else {
-            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) txTemp_rfes not available or too short", hostname.c_str());
+    for (const auto& [hostname, last_ts] : last_heartbeat_ts_) {
+        // RCLCPP_DEBUG(radar_node_->get_logger(), "heart_beat:: hostname: %s now: %lu time: %lu", hostname.c_str(), now, last_ts);
+        if ((now > last_ts) && (now - last_ts >= 5)) {
+            time_t last_time = static_cast<time_t>(last_ts);
+            struct tm* timeinfo = localtime(&last_time);
+            char time_str[16];
+            strftime(time_str, sizeof(time_str), "%H:%M:%S", timeinfo);
+            RCLCPP_DEBUG(radar_node_->get_logger(),"Connection lost: %s (last heartbeat at %s)", hostname.c_str(), time_str);
         }
-
-        auto rfeErrorState = Heartbeat->rfe_error_state();
-        if (rfeErrorState && rfeErrorState->size() >= 4) {
-            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) rfeErrorState = 0x%08x, 0x%08x, 0x%08x, 0x%08x",
-                hostname.c_str(), rfeErrorState->Get(0), rfeErrorState->Get(1), rfeErrorState->Get(2), rfeErrorState->Get(3));
-        } else {
-            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) rfeErrorState not available or too short", hostname.c_str());
-        }
-#endif
-        radar_node_->publishHeartbeat(radar_health_msg);
     }
 }
 
@@ -188,6 +159,50 @@ void Heartbeat::handleClientMessages() {
                 RCLCPP_DEBUG(radar_node_->get_logger(), "heart_beat:: Unknown message type: %08x receivedIp: %s", messageType, receivedIp.c_str());
                 break;
         }
+    }
+}
+
+void Heartbeat::processHeartbeatMessage(const uint8_t* buffer, const std::string& receivedIp) {
+    auto Heartbeat = AU::GetHeartbeat(&buffer[PAYLOAD_OFFSET]);
+    if (!Heartbeat) {
+        RCLCPP_ERROR(rclcpp::get_logger("Heartbeat"), "Failed to decode Heartbeat message.");
+        return;
+    }
+
+    std::string hostname = Heartbeat->client_hostname()->str();
+    if (clientHostname.starts_with(hostname.substr(0, 7))) {
+        mon_msgs::msg::RadarHealth radar_health_msg;
+        time_t raw_time = static_cast<time_t>(Heartbeat->timestamp());
+        struct tm* timeinfo = localtime(&raw_time);
+        char time_str[64];
+        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", timeinfo);
+        setClientIp(hostname, receivedIp);
+
+        radar_health_msg.client_hostname = hostname;
+        radar_health_msg.status = Heartbeat->status();
+        radar_health_msg.tv_sec = Heartbeat->timestamp();
+        last_heartbeat_ts_[hostname] = Heartbeat->timestamp();
+
+        RCLCPP_DEBUG(radar_node_->get_logger(), "heart_beat:: hostname: %s status: %u time: %s",
+                     radar_health_msg.client_hostname.c_str(), radar_health_msg.status, time_str);
+#ifdef DEBUG_BUILD
+        auto temps = Heartbeat->temp_tx_rfes();
+        if (temps && temps->size() >= 4) {
+            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) temperature a53_core = %.2f, tx_rfes = %.2f, %.2f, %.2f, %.2f",
+                hostname.c_str(), Heartbeat->temp_a53_cores(), temps->Get(0), temps->Get(1), temps->Get(2), temps->Get(3));
+        } else {
+            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) txTemp_rfes not available or too short", hostname.c_str());
+        }
+
+        auto rfeErrorState = Heartbeat->rfe_error_state();
+        if (rfeErrorState && rfeErrorState->size() >= 4) {
+            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) rfeErrorState = 0x%08x, 0x%08x, 0x%08x, 0x%08x",
+                hostname.c_str(), rfeErrorState->Get(0), rfeErrorState->Get(1), rfeErrorState->Get(2), rfeErrorState->Get(3));
+        } else {
+            RCLCPP_DEBUG(radar_node_->get_logger(), "heartbeat(%s) rfeErrorState not available or too short", hostname.c_str());
+        }
+#endif
+        radar_node_->publishHeartbeat(radar_health_msg);
     }
 }
 

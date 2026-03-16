@@ -52,12 +52,8 @@ public:
     bool send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
 
     /* PC -> S32 : short frame wrappers */
-    bool send_short_cmd(uint8_t dev_id, ShortCanCmd cmd);
-    bool send_short_cmd_with_data(uint8_t dev_id,
-                                  ShortCanCmd cmd,
-                                  const uint8_t* payload,
-                                  uint8_t payload_len);
-    bool send_time_sync(uint8_t dev_id);
+    bool send_short_cmd_with_data(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const uint8_t* payload, uint8_t payload_len);
+
 
     /* S32 -> PC : drain RX queue and route short/long */
     void poll_rx(void);

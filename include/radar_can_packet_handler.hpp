@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "message_parse.hpp"   // HeaderType 가 여기 있다고 가정(기존 코드와 동일)
+#include "pcan_short_frame_handler.hpp"
 
 class PcanFdTransfer;          // ✅ 전역 forward declaration (namespace 밖)
 
@@ -87,6 +88,7 @@ namespace au_4d_radar
 
         // ✅ CAN 전송기(전역 PcanFdTransfer)
         std::unique_ptr<PcanFdTransfer> can_;
+        std::unique_ptr<PcanShortFrameHandler> short_frame_handler_;
     };
 
 } // namespace au_4d_radar

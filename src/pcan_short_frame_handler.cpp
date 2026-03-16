@@ -1,8 +1,8 @@
-#include "pcan_short_frame_handler.hpp"
-
 #include <utility>
 
 #include "rclcpp/rclcpp.hpp"
+#include "util/conversion.hpp"
+#include "pcan_short_frame_handler.hpp"
 
 namespace au_4d_radar
 {
@@ -20,13 +20,9 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 
 void PcanShortFrameHandler::start(void)
 {
-    can_.set_short_rx_callback(
-        [this](uint8_t dev_id,
-               ShortCanCmd cmd,
-               uint32_t uniq_id,
-               const std::vector<uint8_t>& data)
+    can_.set_short_rx_callback([this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
         {
-            this->handle_short_ack(dev_id, cmd, uniq_id, data);
+            this->handle_short_frame(dev_id, cmd, uniq_id, data);            
         });
 
     if (!quiet_)
@@ -54,42 +50,6 @@ void PcanShortFrameHandler::set_ack_callback(AckCallback cb)
 {
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = std::move(cb);
-}
-
-bool PcanShortFrameHandler::send_hi(uint8_t dev_id)
-{
-    return can_.send_short_cmd(dev_id, ShortCanCmd::HI);
-}
-
-bool PcanShortFrameHandler::send_request_connection(uint8_t dev_id)
-{
-    return can_.send_short_cmd(dev_id, ShortCanCmd::REQUEST_CONNECTION);
-}
-
-bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id)
-{
-    return can_.send_time_sync(dev_id);
-}
-
-bool PcanShortFrameHandler::send_sensor_start(uint8_t dev_id,
-                                              const uint8_t* payload,
-                                              uint8_t payload_len)
-{
-    return can_.send_short_cmd_with_data(dev_id, ShortCanCmd::SENSOR_START, payload, payload_len);
-}
-
-bool PcanShortFrameHandler::send_sensor_stop(uint8_t dev_id,
-                                             const uint8_t* payload,
-                                             uint8_t payload_len)
-{
-    return can_.send_short_cmd_with_data(dev_id, ShortCanCmd::SENSOR_STOP, payload, payload_len);
-}
-
-bool PcanShortFrameHandler::send_reset(uint8_t dev_id,
-                                       const uint8_t* payload,
-                                       uint8_t payload_len)
-{
-    return can_.send_short_cmd_with_data(dev_id, ShortCanCmd::RESET, payload, payload_len);
 }
 
 bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
@@ -143,16 +103,13 @@ PcanShortFrameHandler::AckKey PcanShortFrameHandler::make_ack_key(uint8_t dev_id
     return (static_cast<AckKey>(dev_id) << 32) | static_cast<uint32_t>(cmd);
 }
 
-void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id,
-                                             ShortCanCmd cmd,
-                                             uint32_t uniq_id,
-                                             const std::vector<uint8_t>& data)
+void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
     AckMessage msg;
     msg.dev_id = dev_id;
     msg.cmd = cmd;
     msg.uniq_id = uniq_id;
-    msg.extra = data;
+    msg.payload = data;
     msg.rx_time = std::chrono::steady_clock::now();
 
     AckCallback cb_copy;
@@ -171,11 +128,8 @@ void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id,
     if (!quiet_)
     {
         RCLCPP_INFO(logger_,
-                    "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X extra_len=%zu",
-                    dev_id,
-                    static_cast<uint32_t>(cmd),
-                    uniq_id,
-                    data.size());
+                    "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
+                    dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
     }
 
     if (cb_copy)
@@ -183,5 +137,84 @@ void PcanShortFrameHandler::handle_short_ack(uint8_t dev_id,
         cb_copy(msg);
     }
 }
+
+void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
+{
+
+    RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
+                "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%lu",
+                dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
+
+    switch (cmd)
+    {
+        case ShortCanCmd::HI:
+            handle_short_ack(dev_id, cmd, uniq_id, data);
+            break;
+
+        case ShortCanCmd::TIME_SYNC:
+            break;
+
+        case ShortCanCmd::HEART_BEAT:
+            send_short_time_sync(dev_id, uniq_id);
+            break;
+
+        case ShortCanCmd::SENSOR_START:
+            break;
+
+        case ShortCanCmd::SENSOR_STOP:
+            break;      
+              
+        case ShortCanCmd::RESET:
+            break;
+
+        default:
+            RCLCPP_WARN(rclcpp::get_logger("PcanShortFrameHandler"),
+                        "[Short RX] Unknown cmd=0x%08X from dev=%u",
+                        static_cast<uint32_t>(cmd), dev_id);
+            break;
+    }
+
+}
+
+bool PcanShortFrameHandler::send_short_time_sync(uint8_t dev_id, uint32_t uniq_id)
+{
+    struct timespec ts{};
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
+                     "send_short_time_sync: clock_gettime failed");
+        return false;
+    }
+
+    /* CLOCK_REALTIME -> Unix epoch 기준 ns 단위 u64로 변환 */
+    uint64_t server_ns =
+        (static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL) +
+        static_cast<uint64_t>(ts.tv_nsec);
+
+    uint8_t payload[8] = {0u, };
+    Conversion::u64_to_be(server_ns, payload);
+
+    time_t sec = static_cast<time_t>(ts.tv_sec);
+    struct tm tm_info{};
+    char time_str[64] = {0, };
+
+    localtime_r(&sec, &tm_info);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
+
+    if (!quiet_) {
+        RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
+                    "send_short_time_sync: Time: %s, ns=%llu, dev=%u, uniq_id=0x%08X",
+                    time_str,
+                    static_cast<unsigned long long>(server_ns),
+                    dev_id,
+                    uniq_id);
+    }
+
+    return can_.send_short_cmd_with_data(dev_id,
+                                         ShortCanCmd::TIME_SYNC,
+                                         uniq_id,
+                                         payload,
+                                         sizeof(payload));
+}
+
 
 }  // namespace au_4d_radar

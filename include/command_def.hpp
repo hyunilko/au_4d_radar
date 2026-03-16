@@ -19,7 +19,7 @@ enum class CanCommand : std::uint32_t
 /* Command IDs (U32) */
 enum class CanLongCommand : std::uint32_t
 {
-    MSG_POINT_CLOUD     = 0x506C5043U,
+    POINT_CLOUD     = 0x506C5043U,
 };
 
 #endif /* COMMAND_DEF_H */

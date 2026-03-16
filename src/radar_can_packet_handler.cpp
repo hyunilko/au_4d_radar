@@ -19,6 +19,7 @@
 #include "radar_can_packet_handler.hpp"
 
 #include "pcan_fd_transfer.hpp"
+#include "pcan_short_frame_handler.hpp"
 
 #define BUFFER_SIZE     2048
 #define MSG_TYPE_OFFSET 4
@@ -84,6 +85,12 @@ void RadarCanPacketHandler::stop()
         client_queue_cvs_.clear();
     }
 
+    if (short_frame_handler_)
+    {
+        short_frame_handler_->stop();
+        short_frame_handler_.reset();
+    }
+
     if (can_)
     {
         can_->set_rx_callback(PcanFdTransfer::RxCallback{}); // nullptr 대신 빈 콜백
@@ -115,6 +122,9 @@ bool RadarCanPacketHandler::initialize()
         return false;
     }
 
+    short_frame_handler_ = std::make_unique<PcanShortFrameHandler>(radar_node_, *can_);
+    short_frame_handler_->start();
+
     // ✅ 수신된 TP 메시지 payload를 message_queue_에 push
     // (새 pcan_fd_transfer: dev_id, frame_id, frame_count, payload)
     can_->set_rx_callback([this](uint8_t dev_id,
@@ -123,10 +133,10 @@ bool RadarCanPacketHandler::initialize()
                                  uint32_t msg_id,
                                  std::vector<uint8_t>&& payload)
     {
-        (void)dev_id;
-        (void)frame_id;
-        (void)frame_count;
-        (void)msg_id;
+       (void)dev_id;
+       (void)frame_id;
+       (void)frame_count;
+       (void)msg_id;
 
         if (payload.size() < mTsPacketHeaderSize || payload.size() >= BUFFER_SIZE)
         {
@@ -135,7 +145,7 @@ bool RadarCanPacketHandler::initialize()
         }
 
         const uint32_t unique_id = Conversion::le_to_u32(&payload[MSG_TYPE_OFFSET]);
-        //RCLCPP_INFO(radar_node_->get_logger(), "unique_id %08x", unique_id);
+        //RCLCPP_INFO(radar_node_->get_logger(), "dev_id: %d frame_id %08x frame_count %u msg_id %08x unique_id %08x", dev_id, frame_id, frame_count, msg_id, unique_id);
         if (!YamlParser::checkValidFrameId(unique_id))
         {
             RCLCPP_WARN(radar_node_->get_logger(), "unique_id %08x not in system_info.yaml", unique_id);
@@ -267,7 +277,7 @@ void RadarCanPacketHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer,
 
         if (completeRadarScanMsg) {
             std::lock_guard<std::mutex> lock(publish_mutex_);
-            //uint32_t time_sync_scan = radar_scan_msg.header.stamp.nanosec / 10000000;
+            uint32_t time_sync_scan = radar_scan_msg.header.stamp.nanosec / 10000000;
             //RCLCPP_DEBUG(radar_node_->get_logger(), "id: %s 10ms %02u", radar_scan_msg.header.frame_id.c_str(), time_sync_scan);
             radar_node_->publishRadarScanMsg(radar_scan_msg);
             radar_scan_msg.returns.clear();
