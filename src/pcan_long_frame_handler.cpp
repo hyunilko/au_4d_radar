@@ -35,11 +35,11 @@ namespace au_4d_radar {
 
 PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can)
     : radar_node_(node),
-      can_(can),
       message_parser_(node->get_logger()),
       receive_running(true),
       process_running(true),
-      process_runnings(true)
+      process_runnings(true),
+      can_(can)
 {
 }
 

@@ -14,7 +14,7 @@ radars:
     frame_id: RADAR_REAR # 180 rotation based on y axis
     xyz: [-0.1532, -0.1908, 0.06]
     rpy: [0, 0, 90]
-  916b3915: # 3
+  2f7e83f9: # 3
     frame_id: RADAR_LEFT
     xyz: [0.1532, -0.1908, 0.06]
     rpy: [0, 0, 180]
