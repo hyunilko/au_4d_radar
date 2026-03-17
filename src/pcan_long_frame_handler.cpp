@@ -271,7 +271,7 @@ void PcanLongFrameHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, 
 
             uint32_t time_sync_cloud = radar_cloud_msg.header.stamp.nanosec / 10000000;
             if (isNewTimeSync(time_sync_cloud)) {
-                RCLCPP_DEBUG(radar_node_->get_logger(), "id: RADARS 10ms %02u", time_sync_cloud);
+                //RCLCPP_DEBUG(radar_node_->get_logger(), "id: RADARS 10ms %02u", time_sync_cloud);
                 radar_node_->publishRadarPointCloud2(radar_cloud_msgs);
                 radar_cloud_msgs.data.clear();
                 radar_cloud_msgs = std::move(multiple_cloud_messages);
