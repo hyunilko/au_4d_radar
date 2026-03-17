@@ -21,7 +21,7 @@ device_au_radar_node* device_au_radar_node::instance_ = nullptr;
 device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
 : Node("device_au_radar_node", options),
   can_fd_transfer_(PcanFdTransfer::Config{}),
-  can_short_handler_(this, can_fd_transfer_), radar_handler_(this), adm_tf_listener_(this)
+  can_short_handler_(this, can_fd_transfer_), radar_can_handler_(this, can_fd_transfer_), adm_tf_listener_(this)
 {
     instance_ = this;
 
@@ -51,7 +51,7 @@ device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
 
     initInterruptHandler();
     YamlParser::init();
-    radar_handler_.start();
+    radar_can_handler_.start();
     can_short_handler_.start();
 
     RCLCPP_DEBUG(this->get_logger(), "Start AU 4D Radar Driver Node");
@@ -63,7 +63,7 @@ void device_au_radar_node::interruptHandler(int sig) {
     if (sig == SIGINT || sig == SIGHUP || sig == SIGKILL || sig == SIGSEGV || sig == SIGTERM) {
         RCLCPP_ERROR(rclcpp::get_logger("radar_node"), "interruptHandler performed");
 
-        instance_->radar_handler_.stop();
+        instance_->radar_can_handler_.stop();
         instance_->can_short_handler_.stop();
 
         exit(0);

@@ -33,8 +33,9 @@ enum HeaderType {
 
 namespace au_4d_radar {
 
-RadarCanPacketHandler::RadarCanPacketHandler(device_au_radar_node* node)
+RadarCanPacketHandler::RadarCanPacketHandler(device_au_radar_node* node, PcanFdTransfer& can)
     : radar_node_(node),
+      can_(can),
       message_parser_(node->get_logger()),
       receive_running(true),
       process_running(true),
@@ -85,18 +86,8 @@ void RadarCanPacketHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    if (short_frame_handler_)
-    {
-        short_frame_handler_->stop();
-        short_frame_handler_.reset();
-    }
-
-    if (can_)
-    {
-        can_->set_rx_callback(PcanFdTransfer::RxCallback{}); // nullptr 대신 빈 콜백
-        can_->shutdown();
-        can_.reset();
-    }
+    can_.set_rx_callback(PcanFdTransfer::RxCallback{}); // nullptr 대신 빈 콜백
+    can_.shutdown();
 }
 
 bool RadarCanPacketHandler::initialize()
@@ -104,27 +95,15 @@ bool RadarCanPacketHandler::initialize()
     point_cloud2_setting_ = YamlParser::readPointCloud2Setting("POINT_CLOUD2");
     message_number_       = YamlParser::readMessageNumber("MESSAGE_NUMBER");
 
-    PcanFdTransfer::Config cfg;
-    cfg.handle       = PCAN_USBBUS1;
-    cfg.device_count = 4;
-    cfg.long_tx_base_id = 0x500;   // PC -> S32
-    cfg.long_rx_base_id = 0x550;   // S32 -> PC
-    cfg.brs_on       = true;
-    cfg.quiet        = true;
-
     RCLCPP_DEBUG(radar_node_->get_logger(), "RadarCanPacketHandler::initialize()");
 
-    can_ = std::make_unique<PcanFdTransfer>(cfg);
-    if (!can_->init())
+    if (!can_.init())
     {
         RCLCPP_ERROR(radar_node_->get_logger(), "PCAN init failed");
         return false;
     }
 
-    short_frame_handler_ = std::make_unique<PcanShortFrameHandler>(radar_node_, *can_);
-    short_frame_handler_->start();
-
-    can_->set_rx_callback([this](uint8_t dev_id,
+    can_.set_rx_callback([this](uint8_t dev_id,
                                  uint32_t frame_id,
                                  uint32_t frame_count,
                                  uint32_t msg_id,
@@ -168,10 +147,7 @@ void RadarCanPacketHandler::receiveMessagesTwoQueues()
 {
     while (receive_running.load())
     {
-        if (can_)
-        {
-            can_->poll_rx();
-        }
+        can_.poll_rx();
         usleep(1000);
     }
 }
@@ -383,9 +359,7 @@ int RadarCanPacketHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                         const uint8_t* payload, int payload_len)
 {
     (void)msg_id;
-    if (!can_) return -1;
-
-    return can_->send_payload(device_id, msg_id, payload, payload_len) ? payload_len : -1;
+    return can_.send_payload(device_id, msg_id, payload, payload_len) ? payload_len : -1;
 }
 
 }  // namespace au_4d_radar

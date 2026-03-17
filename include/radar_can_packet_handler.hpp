@@ -14,7 +14,6 @@
 #include <memory>
 
 #include "message_parse.hpp"   // HeaderType 가 여기 있다고 가정(기존 코드와 동일)
-#include "pcan_short_frame_handler.hpp"
 
 class PcanFdTransfer;          // ✅ 전역 forward declaration (namespace 밖)
 
@@ -25,7 +24,7 @@ namespace au_4d_radar
     class RadarCanPacketHandler
     {
     public:
-        explicit RadarCanPacketHandler(device_au_radar_node* node);
+        explicit RadarCanPacketHandler(device_au_radar_node* node, PcanFdTransfer& can);
         ~RadarCanPacketHandler();
 
         void start();
@@ -86,9 +85,8 @@ namespace au_4d_radar
 
         static constexpr size_t mTsPacketHeaderSize = 36UL;
 
-        // ✅ CAN 전송기(전역 PcanFdTransfer)
-        std::unique_ptr<PcanFdTransfer> can_;
-        std::unique_ptr<PcanShortFrameHandler> short_frame_handler_;
+        // ✅ CAN 전송기 — 노드 레벨에서 공유되는 PcanFdTransfer 레퍼런스
+        PcanFdTransfer& can_;
     };
 
 } // namespace au_4d_radar

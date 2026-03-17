@@ -51,7 +51,6 @@ add_library(device_au_radar_node SHARED
   src/pcan_fd_transfer.cpp
   src/pcan_short_frame.cpp
   src/pcan_long_frame.cpp  
-  src/heart_beat.cpp
   src/adm_tf_listener.cpp)
 
 target_compile_definitions(device_au_radar_node
