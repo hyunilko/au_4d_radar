@@ -2,6 +2,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "util/conversion.hpp"
+
+#include "au_4d_radar.hpp"
 #include "pcan_short_frame_handler.hpp"
 
 namespace au_4d_radar
@@ -197,7 +199,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
     if (!quiet_) {
-        RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
+        RCLCPP_DEBUG(radar_node_->get_logger(),
                     "send_time_sync: Time: %s, dev=%u, uniq_id=0x%08X",
                     time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }

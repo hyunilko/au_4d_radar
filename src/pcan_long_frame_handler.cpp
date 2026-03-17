@@ -19,7 +19,7 @@
 #include "radar_can_packet_handler.hpp"
 
 #include "pcan_fd_transfer.hpp"
-#include "pcan_short_frame_handler.hpp"
+// #include "pcan_short_frame_handler.hpp"
 
 #define BUFFER_SIZE     2048
 #define MSG_TYPE_OFFSET 4
@@ -86,7 +86,7 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    can_.set_rx_callback(PcanFdTransfer::RxCallback{}); // nullptr 대신 빈 콜백
+    can_.set_rx_callback(PcanFdTransfer::RxCallback{});
     can_.shutdown();
 }
 
@@ -250,8 +250,12 @@ void PcanLongFrameHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, 
 
         if (completeRadarScanMsg) {
             std::lock_guard<std::mutex> lock(publish_mutex_);
+#ifdef DEBUG_BUILD
             uint32_t time_sync_scan = radar_scan_msg.header.stamp.nanosec / 10000000;
-            RCLCPP_DEBUG(radar_node_->get_logger(), "id: %s 10ms %02u", radar_scan_msg.header.frame_id.c_str(), time_sync_scan);
+            uint32_t UID = Conversion::le_to_u32(&buffer[MSG_TYPE_OFFSET]);
+            uint32_t TPN = Conversion::le_to_u32(&buffer[24]);
+            RCLCPP_DEBUG(radar_node_->get_logger(), "UID: %08x TPN: %03u %02u ms", UID, TPN, time_sync_scan);
+#endif
             radar_node_->publishRadarScanMsg(radar_scan_msg);
             radar_scan_msg.returns.clear();
         }
