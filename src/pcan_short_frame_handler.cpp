@@ -22,7 +22,7 @@ void PcanShortFrameHandler::start(void)
 {
     can_.set_short_rx_callback([this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
         {
-            this->handle_short_frame(dev_id, cmd, uniq_id, data);            
+            this->handle_short_frame(dev_id, cmd, uniq_id, data);
         });
 
     if (!quiet_)

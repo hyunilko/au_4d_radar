@@ -33,7 +33,7 @@ enum HeaderType {
 
 namespace au_4d_radar {
 
-RadarCanPacketHandler::RadarCanPacketHandler(device_au_radar_node* node, PcanFdTransfer& can)
+PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can)
     : radar_node_(node),
       can_(can),
       message_parser_(node->get_logger()),
@@ -43,17 +43,17 @@ RadarCanPacketHandler::RadarCanPacketHandler(device_au_radar_node* node, PcanFdT
 {
 }
 
-RadarCanPacketHandler::~RadarCanPacketHandler()
+PcanLongFrameHandler::~PcanLongFrameHandler()
 {
     stop();
 }
 
-void RadarCanPacketHandler::start()
+void PcanLongFrameHandler::start()
 {
     if (initialize())
     {
-        receive_thread_ = std::thread(&RadarCanPacketHandler::receiveMessagesTwoQueues, this);
-        process_thread_ = std::thread(&RadarCanPacketHandler::processMessages, this);
+        receive_thread_ = std::thread(&PcanLongFrameHandler::receiveMessagesTwoQueues, this);
+        process_thread_ = std::thread(&PcanLongFrameHandler::processMessages, this);
     }
     else
     {
@@ -61,7 +61,7 @@ void RadarCanPacketHandler::start()
     }
 }
 
-void RadarCanPacketHandler::stop()
+void PcanLongFrameHandler::stop()
 {
     receive_running.store(false);
     process_running.store(false);
@@ -90,12 +90,12 @@ void RadarCanPacketHandler::stop()
     can_.shutdown();
 }
 
-bool RadarCanPacketHandler::initialize()
+bool PcanLongFrameHandler::initialize()
 {
     point_cloud2_setting_ = YamlParser::readPointCloud2Setting("POINT_CLOUD2");
     message_number_       = YamlParser::readMessageNumber("MESSAGE_NUMBER");
 
-    RCLCPP_DEBUG(radar_node_->get_logger(), "RadarCanPacketHandler::initialize()");
+    RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
     if (!can_.init())
     {
@@ -143,7 +143,7 @@ bool RadarCanPacketHandler::initialize()
     return true;
 }
 
-void RadarCanPacketHandler::receiveMessagesTwoQueues()
+void PcanLongFrameHandler::receiveMessagesTwoQueues()
 {
     while (receive_running.load())
     {
@@ -152,7 +152,7 @@ void RadarCanPacketHandler::receiveMessagesTwoQueues()
     }
 }
 
-void RadarCanPacketHandler::processMessages() {
+void PcanLongFrameHandler::processMessages() {
     std::vector<uint8_t> buffer(BUFFER_SIZE);
     while (process_running.load()) {
         // std::vector<uint8_t> buffer(BUFFER_SIZE);
@@ -189,7 +189,7 @@ void RadarCanPacketHandler::processMessages() {
             std::lock_guard<std::mutex> lock(client_threads_mutex_);
             if (client_threads_.find(unique_id) == client_threads_.end()) {
                 client_queue_cvs_[unique_id];
-                client_threads_[unique_id] = std::thread(&RadarCanPacketHandler::processClientMessages, this, unique_id);
+                client_threads_[unique_id] = std::thread(&PcanLongFrameHandler::processClientMessages, this, unique_id);
             }
         }
         buffer.clear();
@@ -197,7 +197,7 @@ void RadarCanPacketHandler::processMessages() {
     }
 }
 
-void RadarCanPacketHandler::processClientMessages(uint32_t unique_id) {
+void PcanLongFrameHandler::processClientMessages(uint32_t unique_id) {
     radar_msgs::msg::RadarScan radar_scan_msg;
     sensor_msgs::msg::PointCloud2 radar_cloud_msg;
     radar_msgs::msg::RadarTracks radar_tracks_msg;
@@ -238,7 +238,7 @@ void RadarCanPacketHandler::processClientMessages(uint32_t unique_id) {
     }
 }
 
-void RadarCanPacketHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarScan& radar_scan_msg,
+void PcanLongFrameHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarScan& radar_scan_msg,
         sensor_msgs::msg::PointCloud2& radar_cloud_msg, std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer) {
 
     {
@@ -251,7 +251,7 @@ void RadarCanPacketHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer,
         if (completeRadarScanMsg) {
             std::lock_guard<std::mutex> lock(publish_mutex_);
             uint32_t time_sync_scan = radar_scan_msg.header.stamp.nanosec / 10000000;
-            //RCLCPP_DEBUG(radar_node_->get_logger(), "id: %s 10ms %02u", radar_scan_msg.header.frame_id.c_str(), time_sync_scan);
+            RCLCPP_DEBUG(radar_node_->get_logger(), "id: %s 10ms %02u", radar_scan_msg.header.frame_id.c_str(), time_sync_scan);
             radar_node_->publishRadarScanMsg(radar_scan_msg);
             radar_scan_msg.returns.clear();
         }
@@ -291,7 +291,7 @@ void RadarCanPacketHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer,
  * @param radar_cloud_msg
  * @param multiple_cloud_messages
  */
-void RadarCanPacketHandler::assemblePointCloud(std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer,
+void PcanLongFrameHandler::assemblePointCloud(std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer,
         const sensor_msgs::msg::PointCloud2& radar_cloud_msg, sensor_msgs::msg::PointCloud2& multiple_cloud_messages) {
 
     if (message_number_ > 1) {
@@ -326,7 +326,7 @@ void RadarCanPacketHandler::assemblePointCloud(std::deque<sensor_msgs::msg::Poin
  * @param multiple_cloud_messages
  * @param radar_cloud_msgs
  */
-void RadarCanPacketHandler::mergePointCloud(const sensor_msgs::msg::PointCloud2& multiple_cloud_messages,
+void PcanLongFrameHandler::mergePointCloud(const sensor_msgs::msg::PointCloud2& multiple_cloud_messages,
         sensor_msgs::msg::PointCloud2& radar_cloud_msgs) {
 
     radar_cloud_msgs.width += multiple_cloud_messages.width;
@@ -336,13 +336,13 @@ void RadarCanPacketHandler::mergePointCloud(const sensor_msgs::msg::PointCloud2&
                                  std::make_move_iterator(multiple_cloud_messages.data.end()));
 }
 
-bool RadarCanPacketHandler::isNewTimeSync(uint32_t time_sync_cloud) {
+bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud) {
     bool isNew = (time_sync_pre_cloud_ != time_sync_cloud);
     time_sync_pre_cloud_ = time_sync_cloud;
     return isNew;
 }
 
-void RadarCanPacketHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg) {
+void PcanLongFrameHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg) {
     bool completeRadarTrackMsg = false;
     {
         std::lock_guard<std::mutex> lock(parse_mutex_);
@@ -355,7 +355,7 @@ void RadarCanPacketHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer
     }
 }
 
-int RadarCanPacketHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
+int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                         const uint8_t* payload, int payload_len)
 {
     (void)msg_id;

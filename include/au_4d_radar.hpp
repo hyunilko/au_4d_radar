@@ -25,7 +25,7 @@ namespace au_4d_radar
 
         PcanFdTransfer can_fd_transfer_;
         PcanShortFrameHandler can_short_handler_;
-        RadarCanPacketHandler radar_can_handler_;
+        PcanLongFrameHandler can_long_handler_;
         AdmTFListener adm_tf_listener_;
 
     private:

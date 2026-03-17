@@ -21,11 +21,11 @@ namespace au_4d_radar
 {
     class device_au_radar_node;
 
-    class RadarCanPacketHandler
+    class PcanLongFrameHandler
     {
     public:
-        explicit RadarCanPacketHandler(device_au_radar_node* node, PcanFdTransfer& can);
-        ~RadarCanPacketHandler();
+        explicit PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can);
+        ~PcanLongFrameHandler();
 
         void start();
         void stop();
