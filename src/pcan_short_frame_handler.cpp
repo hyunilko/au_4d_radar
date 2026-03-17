@@ -159,8 +159,8 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, 
             break;
 
         case ShortCanCmd::SENSOR_STOP:
-            break;      
-              
+            break;
+
         case ShortCanCmd::RESET:
             break;
 
