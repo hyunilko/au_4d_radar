@@ -86,7 +86,7 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    can_.set_rx_callback(PcanFdTransfer::LongRxCallback{});
+    can_.set_long_rx_callback(PcanFdTransfer::LongRxCallback{});
     can_.shutdown();
 }
 
@@ -103,7 +103,7 @@ bool PcanLongFrameHandler::initialize()
         return false;
     }
 
-    can_.set_rx_callback([this](uint8_t dev_id,
+    can_.set_long_rx_callback([this](uint8_t dev_id,
                                  uint32_t frame_id,
                                  uint32_t frame_count,
                                  uint32_t msg_id,

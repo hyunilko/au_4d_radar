@@ -59,7 +59,7 @@ public:
     void poll_rx(void);
 
     /* RX callback registration */
-    void set_rx_callback(LongRxCallback cb);
+    void set_long_rx_callback(LongRxCallback cb);
     void set_short_rx_callback(ShortRxCallback cb);
 
 private:

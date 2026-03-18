@@ -217,7 +217,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
 }
 
 /* PcanFdTransfer long wrapper implementations */
-void PcanFdTransfer::set_rx_callback(LongRxCallback cb)
+void PcanFdTransfer::set_long_rx_callback(LongRxCallback cb)
 {
     if (long_frame_) {
         long_frame_->set_rx_callback(std::move(cb));
