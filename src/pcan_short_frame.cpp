@@ -60,7 +60,7 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
     const uint8_t total_len = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN + payload_len);
 
     const bool ok = pcan_.send_data(can_id, frame, total_len);
-    if (!ok && !cfg_.quiet) {
+    if (!ok) {
         RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
                      "send_short_command_with_data: send_data failed (dev=%u, cmd=0x%08X)",
                      dev_id, static_cast<uint32_t>(cmd));
@@ -127,11 +127,6 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
     const uint8_t payload_len = (data_len > payload_offset) ? static_cast<uint8_t>(data_len - payload_offset) : 0u;
     const std::vector<uint8_t> payload(data + payload_offset, data + payload_offset + payload_len);
 
-    if (!cfg_.quiet) {
-       // RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
-       //             "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%u",
-       //             dev_id, cmd_raw, uniq_id, payload_len);
-    }
 
     std::lock_guard<std::mutex> lk(mtx_);
     if (rx_cb_) {

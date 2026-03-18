@@ -11,12 +11,10 @@ namespace au_4d_radar
 
 PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
                                              PcanFdTransfer& can,
-                                             rclcpp::Logger logger,
-                                             bool quiet)
+                                             rclcpp::Logger logger)
     : can_(can)
     , short_frame_(can, can.short_frame_config())
     , logger_(std::move(logger))
-    , quiet_(quiet)
     , radar_node_(node)
 {
 }
@@ -28,10 +26,7 @@ void PcanShortFrameHandler::start(void)
             this->handle_short_frame(dev_id, cmd, uniq_id, data);
         });
 
-    if (!quiet_)
-    {
-        //RCLCPP_INFO(logger_, "PcanShortFrameHandler started");
-    }
+
 }
 
 void PcanShortFrameHandler::stop(void)
@@ -43,10 +38,7 @@ void PcanShortFrameHandler::stop(void)
     ack_map_.clear();
     uniq_id_map_.clear();
 
-    if (!quiet_)
-    {
-        RCLCPP_INFO(logger_, "PcanShortFrameHandler stopped");
-    }
+    RCLCPP_DEBUG(logger_, "PcanShortFrameHandler stopped");
 }
 
 bool PcanShortFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
@@ -78,12 +70,9 @@ bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
 
     if (!ok)
     {
-        if (!quiet_)
-        {
-            RCLCPP_WARN(logger_,
-                        "wait_for_ack timeout dev=%u cmd=0x%08X timeout_ms=%lld",
-                        dev_id, static_cast<uint32_t>(cmd), static_cast<long long>(timeout.count()));
-        }
+        RCLCPP_WARN(logger_,
+                    "wait_for_ack timeout dev=%u cmd=0x%08X timeout_ms=%lld",
+                    dev_id, static_cast<uint32_t>(cmd), static_cast<long long>(timeout.count()));
         return false;
     }
 
@@ -131,11 +120,8 @@ void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint
 
     cv_.notify_all();
 
-    if (!quiet_)
-    {
-        RCLCPP_INFO(logger_, "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
-                    dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
-    }
+    RCLCPP_DEBUG(logger_, "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
+                dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
 
     if (cb_copy)
     {
@@ -204,11 +190,9 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
     gmtime_r(&sec, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
-    if (!quiet_) {
-        RCLCPP_DEBUG(radar_node_->get_logger(), 
-                    "send_time_sync: Time: %s, dev=%u, uniq_id=0x%08X",
-                    time_str, dev_id, Conversion::swap_endian32(uniq_id));
-    }
+    RCLCPP_DEBUG(radar_node_->get_logger(),
+                "send_time_sync: Time: %s, dev=%u, uniq_id=0x%08X",
+                time_str, dev_id, Conversion::swap_endian32(uniq_id));
 
     return can_.send_cmd_with_data(dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
 }

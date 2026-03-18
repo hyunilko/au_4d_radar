@@ -34,8 +34,7 @@ public:
 
     explicit PcanShortFrameHandler(device_au_radar_node* node,
                                    PcanFdTransfer& can,
-                                   rclcpp::Logger logger = rclcpp::get_logger("PcanShortFrameHandler"),
-                                   bool quiet = false);
+                                   rclcpp::Logger logger = rclcpp::get_logger("PcanShortFrameHandler"));
 
     void start(void);
     void stop(void);
@@ -59,7 +58,6 @@ private:
     PcanFdTransfer& can_;
     PcanShortFrame short_frame_;
     rclcpp::Logger logger_;
-    bool quiet_ = false;
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     AckCallback ack_cb_;

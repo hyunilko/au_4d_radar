@@ -69,7 +69,6 @@ private:
     static uint8_t dlc_to_len(uint8_t dlc);
     static void print_pcan_err(const char* tag, TPCANStatus st);
 
-    bool is_quiet(void) const;
     bool send_data(uint16_t can_id, const uint8_t* data, uint8_t length);
     bool send_frame64(uint16_t can_id, const uint8_t data64[64]);
 

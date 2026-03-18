@@ -27,11 +27,6 @@ void PcanFdTransfer::print_pcan_err(const char* tag, TPCANStatus st)
     RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransfer"), "%s: %s (0x%X)", tag, err, static_cast<unsigned>(st));
 }
 
-bool PcanFdTransfer::is_quiet(void) const
-{
-    return short_cfg_.quiet && long_cfg_.quiet;
-}
-
 bool PcanFdTransfer::init(void)
 {
     if (initialized_) {
@@ -47,17 +42,15 @@ bool PcanFdTransfer::init(void)
 
     initialized_ = true;
 
-    if (!is_quiet()) {
-        RCLCPP_INFO(
-            rclcpp::get_logger("PcanFdTransfer"),
-            "PCAN init OK. short(dev=%u tx=0x%03X rx=0x%03X) long(dev=%u tx=0x%03X rx=0x%03X)",
-            short_cfg_.device_count,
-            short_cfg_.tx_base_id,
-            short_cfg_.rx_base_id,
-            long_cfg_.device_count,
-            long_cfg_.tx_base_id,
-            long_cfg_.rx_base_id);
-    }
+    RCLCPP_DEBUG(
+        rclcpp::get_logger("PcanFdTransfer"),
+        "PCAN init OK. short(dev=%u tx=0x%03X rx=0x%03X) long(dev=%u tx=0x%03X rx=0x%03X)",
+        short_cfg_.device_count,
+        short_cfg_.tx_base_id,
+        short_cfg_.rx_base_id,
+        long_cfg_.device_count,
+        long_cfg_.tx_base_id,
+        long_cfg_.rx_base_id);
 
     return true;
 }
@@ -117,9 +110,7 @@ bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t len
             return true;
         }
 
-        if (!is_quiet()) {
-            print_pcan_err("CAN_WriteFD send_data", st);
-        }
+        print_pcan_err("CAN_WriteFD send_data", st);
         usleep(1000);
     }
 
@@ -149,9 +140,7 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
             return true;
         }
 
-        if (!is_quiet()) {
-            print_pcan_err("CAN_WriteFD send_frame64", st);
-        }
+        print_pcan_err("CAN_WriteFD send_frame64", st);
         usleep(1000);
     }
 
@@ -196,9 +185,7 @@ PcanFdTransfer::ReadStatus PcanFdTransfer::read_frame(RxFrame& out)
     }
 
     if (st != PCAN_ERROR_OK) {
-        if (!is_quiet()) {
-            print_pcan_err("CAN_ReadFD", st);
-        }
+        print_pcan_err("CAN_ReadFD", st);
         out.status = st;
         return ReadStatus::Error;
     }
@@ -207,9 +194,7 @@ PcanFdTransfer::ReadStatus PcanFdTransfer::read_frame(RxFrame& out)
         out.is_status = true;
         out.status = static_cast<TPCANStatus>(Conversion::be_to_u32(rx.DATA));
 
-        if (!is_quiet()) {
-            print_pcan_err("[STATUS]", out.status);
-        }
+        print_pcan_err("[STATUS]", out.status);
         return ReadStatus::Status;
     }
 

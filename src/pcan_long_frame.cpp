@@ -185,21 +185,17 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     const uint64_t needed = APP_PDU_HEADER_LENGTH + static_cast<uint64_t>(payload_len);
 
     if (frame_id != FRAME_MAGIC_BE) {
-        if (!cfg_.quiet) {
-            RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
-                         "[Long TP] bad frame magic dev=%u frame_id=0x%08X frame_count=%u",
-                         dev_id, frame_id, frame_count);
-        }
+        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
+                     "[Long TP] bad frame magic dev=%u frame_id=0x%08X frame_count=%u",
+                     dev_id, frame_id, frame_count);
         st.reset();
         return;
     }
 
     if ((needed > st.buf.size()) || (needed > st.len)) {
-        if (!cfg_.quiet) {
-            RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
-                         "[Long TP] length mismatch dev=%u need=%llu have=%u",
-                         dev_id, static_cast<unsigned long long>(needed), st.len);
-        }
+        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
+                     "[Long TP] length mismatch dev=%u need=%llu have=%u",
+                     dev_id, static_cast<unsigned long long>(needed), st.len);
         st.reset();
         return;
     }

@@ -40,7 +40,6 @@ struct PcanShortFrameConfig
     uint16_t tx_base_id = 0x700u; /* PC -> S32 */
     uint16_t rx_base_id = 0x750u; /* S32 -> PC */
     uint8_t device_count = 4u;
-    bool quiet = false;
 };
 
 class PcanShortFrame

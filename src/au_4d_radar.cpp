@@ -127,14 +127,10 @@ void device_au_radar_node::pcanRxDispatchLoop(void)
             continue;
         }
 
-        const bool quiet = can_fd_transfer_.short_frame_config().quiet &&
-                           can_fd_transfer_.long_frame_config().quiet;
-        if (!quiet) {
-            RCLCPP_WARN(this->get_logger(),
-                        "Unknown CAN ID: 0x%03X len=%u",
-                        frame.can_id,
-                        frame.data_len);
-        }
+        RCLCPP_WARN(this->get_logger(),
+                    "Unknown CAN ID: 0x%03X len=%u",
+                    frame.can_id,
+                    frame.data_len);
     }
 }
 
