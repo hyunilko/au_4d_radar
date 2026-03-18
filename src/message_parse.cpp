@@ -5,7 +5,7 @@
  * @version 1.1
  * @date 2024-09-11
  *
- * @copyright Copyright AU (c) 2024
+ * @copyright Copyright AU (c) 2026
  *
  */
 
@@ -40,6 +40,19 @@ struct tsPacketHeader
 namespace au_4d_radar
 {
 
+/**
+ * @brief Parses a raw sensor packet and appends point data to a PointCloud2 message.
+ *
+ * @details Reads the tsPacketHeader to get frame metadata, computes Cartesian coordinates
+ *          from spherical (range, azimuth, elevation) data using the radar's orientation
+ *          from YAML, and appends each point as x/y/z/intensity/velocity floats.
+ *          Initialises the PointCloud2 header and field descriptors on the first packet
+ *          (PCKN == 1) of each frame.
+ *
+ * @param p_buff    Pointer to the raw payload buffer starting at the UID field.
+ * @param cloud_msg PointCloud2 message being assembled; data is appended across packets.
+ * @param complete  Set to true when the last packet of the frame (TPCKN == PCKN) is parsed.
+ */
 void MessageParser::makeRadarPointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::PointCloud2& cloud_msg, bool& complete) {
     std::lock_guard<std::mutex> lock(mtx_point_cloud2);
     uint32_t idx = 0;
@@ -176,6 +189,16 @@ void MessageParser::makeRadarPointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::P
 
 }
 
+/**
+ * @brief Parses a raw sensor packet and appends RadarReturn entries to a RadarScan message.
+ *
+ * @details Reads the tsPacketHeader for frame metadata, populates the message header on
+ *          each call, and appends range/velocity/azimuth/elevation/amplitude returns.
+ *
+ * @param p_buff        Pointer to the raw payload buffer starting at the UID field.
+ * @param radar_scan_msg RadarScan message being assembled; returns are appended across packets.
+ * @param complete       Set to true when the last packet of the frame (TPCKN == PCKN) is parsed.
+ */
 void MessageParser::makeRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan& radar_scan_msg, bool& complete) {
     std::lock_guard<std::mutex> lock(mtx_radar_scan);
     uint32_t idx = 0;
@@ -252,6 +275,16 @@ void MessageParser::makeRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan
 
 }
 
+/**
+ * @brief Parses a raw sensor packet and populates a RadarTracks message (stub implementation).
+ *
+ * @details Currently generates placeholder tracks with fixed position/velocity values.
+ *          Full track parsing is not yet implemented.
+ *
+ * @param p_buff           Pointer to the raw payload buffer starting at the UID field.
+ * @param radar_tracks_msg RadarTracks message to populate.
+ * @param complete         Set to true when the last packet of the frame is parsed.
+ */
 void MessageParser::makeRadarTracksMsg(uint8_t *p_buff, radar_msgs::msg::RadarTracks &radar_tracks_msg, bool& complete) {
     std::lock_guard<std::mutex> lock(mtx_radar_track);
     uint32_t idx = 0;
@@ -298,14 +331,37 @@ void MessageParser::makeRadarTracksMsg(uint8_t *p_buff, radar_msgs::msg::RadarTr
 
 }
 
+/**
+ * @brief Public entry point for PointCloud2 parsing; delegates to makeRadarPointCloud2Msg().
+ *
+ * @param p_buff          Pointer to the raw payload buffer.
+ * @param radar_cloud_msg PointCloud2 message to assemble.
+ * @param complete        Set to true when the complete frame has been parsed.
+ */
 void MessageParser::parsePointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::PointCloud2& radar_cloud_msg, bool& complete) {
     makeRadarPointCloud2Msg(p_buff, radar_cloud_msg, complete);
 }
 
+/**
+ * @brief Public entry point for RadarScan parsing; delegates to makeRadarScanMsg().
+ *
+ * @param p_buff         Pointer to the raw payload buffer.
+ * @param radar_scan_msg RadarScan message to assemble.
+ * @param complete       Set to true when the complete frame has been parsed.
+ */
 void MessageParser::parseRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan& radar_scan_msg, bool& complete) {
     makeRadarScanMsg(p_buff, radar_scan_msg, complete);
 }
 
+/**
+ * @brief Public entry point for RadarTracks parsing (currently a no-op).
+ *
+ * @details Returns immediately; full track parsing is not yet implemented.
+ *
+ * @param p_buff           Pointer to the raw payload buffer.
+ * @param radar_tracks_msg RadarTracks message (not modified in current implementation).
+ * @param complete         Completion flag (not set in current implementation).
+ */
 void MessageParser::parseRadarTrackMsg(uint8_t *p_buff, radar_msgs::msg::RadarTracks& radar_tracks_msg, bool& complete) {
     // To Do
     return;

@@ -18,6 +18,15 @@
 namespace au_4d_radar_listener
 {
 
+/**
+ * @brief Constructs the listener node and subscribes to radar sensor topics.
+ *
+ * @details Subscribes to /device/au/radar/scan and logs message frequency via
+ *          RCLCPP_DEBUG. An optional PointCloud2 subscription is available but
+ *          disabled by default (controlled by the preprocessor #if 0 block).
+ *
+ * @param options ROS2 node options forwarded to the base Node constructor.
+ */
 listener_au_radar_node::listener_au_radar_node(const rclcpp::NodeOptions & options)
 : Node("listener_au_radar_node", options)
 {

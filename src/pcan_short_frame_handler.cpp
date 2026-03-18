@@ -1,3 +1,16 @@
+/**
+ * @file pcan_short_frame_handler.cpp
+ * @author antonioko@au-sensor.com
+ * @brief High-level handler for short-frame CAN commands (ACK tracking, time-sync).
+ * @version 1.1
+ * @date 2026-03-18
+ *
+ * @copyright Copyright AU (c) 2026
+ *
+ * @details Wraps PcanShortFrame to provide ACK wait/notify semantics, per-device
+ *          unique-ID caching, and automatic TIME_SYNC response to HEART_BEAT frames.
+ */
+
 #include <utility>
 
 #include "rclcpp/rclcpp.hpp"
@@ -9,6 +22,13 @@
 namespace au_4d_radar
 {
 
+/**
+ * @brief Constructs a PcanShortFrameHandler.
+ *
+ * @param node   Pointer to the owning ROS2 radar node (used for publishing and logging).
+ * @param can    Reference to the transport layer for sending replies.
+ * @param logger ROS2 logger instance; defaults to "PcanShortFrameHandler".
+ */
 PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
                                              PcanFdTransfer& can,
                                              rclcpp::Logger logger)
@@ -19,6 +39,9 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 {
 }
 
+/**
+ * @brief Installs the short-frame RX callback so incoming frames are processed.
+ */
 void PcanShortFrameHandler::start(void)
 {
     short_frame_.set_rx_callback([this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
@@ -29,6 +52,9 @@ void PcanShortFrameHandler::start(void)
 
 }
 
+/**
+ * @brief Deregisters the RX callback and clears all pending ACK state.
+ */
 void PcanShortFrameHandler::stop(void)
 {
     short_frame_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
@@ -41,17 +67,42 @@ void PcanShortFrameHandler::stop(void)
     RCLCPP_DEBUG(logger_, "PcanShortFrameHandler stopped");
 }
 
+/**
+ * @brief Dispatches an incoming CAN frame to the owned PcanShortFrame instance.
+ *
+ * @param can_id   CAN ID of the received frame.
+ * @param data     Pointer to frame payload bytes.
+ * @param data_len Length of frame payload.
+ * @return true  if the frame was consumed by the short-frame handler.
+ * @return false if the CAN ID does not belong to the short-frame RX range.
+ */
 bool PcanShortFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
 {
     return short_frame_.handle_short_can_frame(can_id, data, data_len);
 }
 
+/**
+ * @brief Registers a callback that is invoked each time any ACK frame is received.
+ *
+ * @param cb Callback with signature void(const AckMessage&).
+ *           Pass an empty std::function to deregister.
+ */
 void PcanShortFrameHandler::set_ack_callback(AckCallback cb)
 {
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = std::move(cb);
 }
 
+/**
+ * @brief Blocks until an ACK is received for the specified (dev_id, cmd) pair or timeout.
+ *
+ * @param dev_id  Device index to wait for.
+ * @param cmd     Command whose ACK is expected.
+ * @param out     Populated with the received AckMessage on success.
+ * @param timeout Maximum time to wait.
+ * @return true  if an ACK was received before the timeout.
+ * @return false on timeout.
+ */
 bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
                                          ShortCanCmd cmd,
                                          AckMessage& out,
@@ -80,6 +131,14 @@ bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
     return true;
 }
 
+/**
+ * @brief Retrieves the last known unique ID reported by a device.
+ *
+ * @param dev_id       Device index to query.
+ * @param uniq_id_out  Set to the cached unique ID on success.
+ * @return true  if the device has sent at least one non-zero unique ID.
+ * @return false if no unique ID has been received from this device yet.
+ */
 bool PcanShortFrameHandler::get_device_uniq_id(uint8_t dev_id, uint32_t& uniq_id_out) const
 {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -93,11 +152,26 @@ bool PcanShortFrameHandler::get_device_uniq_id(uint8_t dev_id, uint32_t& uniq_id
     return true;
 }
 
+/**
+ * @brief Builds a 64-bit map key from a device ID and command value.
+ *
+ * @param dev_id Device index (stored in the upper 32 bits).
+ * @param cmd    Short command identifier (stored in the lower 32 bits).
+ * @return Combined AckKey for use in the ACK map.
+ */
 PcanShortFrameHandler::AckKey PcanShortFrameHandler::make_ack_key(uint8_t dev_id, ShortCanCmd cmd)
 {
     return (static_cast<AckKey>(dev_id) << 32) | static_cast<uint32_t>(cmd);
 }
 
+/**
+ * @brief Stores a received ACK frame, caches the device unique ID, and notifies waiters.
+ *
+ * @param dev_id  Device index that sent the ACK.
+ * @param cmd     Command the ACK corresponds to.
+ * @param uniq_id Unique ID received in the frame (cached if non-zero).
+ * @param data    Optional payload bytes carried in the ACK frame.
+ */
 void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
     AckMessage msg;
@@ -129,6 +203,14 @@ void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint
     }
 }
 
+/**
+ * @brief Dispatches a decoded short frame to the appropriate command handler.
+ *
+ * @param dev_id  Source device index.
+ * @param cmd     Decoded command identifier.
+ * @param uniq_id Unique ID from the frame header.
+ * @param data    Optional payload bytes.
+ */
 void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
 
@@ -167,6 +249,16 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, 
 
 }
 
+/**
+ * @brief Sends a TIME_SYNC response containing the current CLOCK_REALTIME timestamp.
+ *
+ * @details The timestamp is encoded as a big-endian uint64 (nanoseconds since Unix epoch)
+ *          and transmitted as an 8-byte payload in a short-frame command.
+ *
+ * @param dev_id  Target device index.
+ * @param uniq_id Unique ID to echo back in the response.
+ * @return true on success, false if clock_gettime() fails or the send fails.
+ */
 bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
 {
     struct timespec ts{};

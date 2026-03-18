@@ -5,7 +5,7 @@
  * @version 1.1
  * @date 2024-09-11
  *
- * @copyright Copyright AU (c) 2024
+ * @copyright Copyright AU (c) 2026
  *
  */
 
@@ -37,6 +37,14 @@ PcanLongFrameConfig make_pcan_long_frame_config()
 
 device_au_radar_node* device_au_radar_node::instance_ = nullptr;
 
+/**
+ * @brief Constructs the AU 4D Radar ROS2 node.
+ *
+ * @details Creates all ROS2 publishers, initialises YAML settings, starts the short-frame
+ *          and long-frame handlers, and launches the PCAN RX dispatch thread.
+ *
+ * @param options ROS2 node options forwarded to the base Node constructor.
+ */
 device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
 : Node("device_au_radar_node", options),
   can_fd_transfer_(make_pcan_fd_transfer_config(),
@@ -80,6 +88,9 @@ device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
     RCLCPP_DEBUG(this->get_logger(), "Start AU 4D Radar Driver Node");
 }
 
+/**
+ * @brief Destructor. Stops the PCAN RX dispatch thread and both frame handlers.
+ */
 device_au_radar_node::~device_au_radar_node()
 {
     stopPcanRxDispatch();
@@ -87,6 +98,11 @@ device_au_radar_node::~device_au_radar_node()
     can_short_handler_.stop();
 }
 
+/**
+ * @brief Starts the PCAN RX dispatch thread if it is not already running.
+ *
+ * @details Uses an atomic exchange to guarantee at most one dispatch thread is active.
+ */
 void device_au_radar_node::startPcanRxDispatch(void)
 {
     if (pcan_rx_running_.exchange(true)) {
@@ -96,6 +112,9 @@ void device_au_radar_node::startPcanRxDispatch(void)
     pcan_rx_thread_ = std::thread(&device_au_radar_node::pcanRxDispatchLoop, this);
 }
 
+/**
+ * @brief Signals the PCAN RX dispatch thread to exit and joins it.
+ */
 void device_au_radar_node::stopPcanRxDispatch(void)
 {
     pcan_rx_running_.store(false);
@@ -104,6 +123,14 @@ void device_au_radar_node::stopPcanRxDispatch(void)
     }
 }
 
+/**
+ * @brief Main CAN RX loop: reads frames from hardware and dispatches to handlers.
+ *
+ * @details Runs in a dedicated thread. Each iteration calls can_fd_transfer_.read_frame().
+ *          Empty-queue results trigger a 1 ms sleep; data frames are offered first to the
+ *          short-frame handler, then to the long-frame handler. Unrecognised CAN IDs are
+ *          logged as warnings.
+ */
 void device_au_radar_node::pcanRxDispatchLoop(void)
 {
     while (pcan_rx_running_.load()) {
@@ -134,6 +161,14 @@ void device_au_radar_node::pcanRxDispatchLoop(void)
     }
 }
 
+/**
+ * @brief POSIX signal handler that performs a clean shutdown on fatal signals.
+ *
+ * @details Stops the RX dispatch thread and both frame handlers, then calls exit(0).
+ *          Registered for SIGINT, SIGHUP, SIGKILL, SIGSEGV, and SIGTERM.
+ *
+ * @param sig Signal number received.
+ */
 void device_au_radar_node::interruptHandler(int sig) {
     RCLCPP_ERROR(rclcpp::get_logger("interruptHandler"), "signum=%d", sig);
 
@@ -148,6 +183,14 @@ void device_au_radar_node::interruptHandler(int sig) {
     }
 }
 
+/**
+ * @brief Declares or retrieves a ROS2 parameter, writing its value into @p variable.
+ *
+ * @tparam Param  Parameter value type (deduced from @p variable).
+ * @param nh       Shared pointer to the node on which to operate.
+ * @param name     Parameter name.
+ * @param variable Reference updated with the parameter value.
+ */
 template<typename Param>
 void device_au_radar_node::get_param(rclcpp::Node::SharedPtr nh, const std::string& name, Param& variable) {
     using var_type = std::remove_reference_t<decltype(variable)>;
@@ -159,26 +202,51 @@ void device_au_radar_node::get_param(rclcpp::Node::SharedPtr nh, const std::stri
     }
 }
 
+/**
+ * @brief Thread-safe publish of a RadarScan message on /device/au/radar/scan.
+ *
+ * @param radar_scan_msg Message to publish.
+ */
 void device_au_radar_node::publishRadarScanMsg(radar_msgs::msg::RadarScan &radar_scan_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_scan->publish(radar_scan_msg);
 }
 
+/**
+ * @brief Thread-safe publish of a RadarTracks message on /device/au/radar/track.
+ *
+ * @param radar_tracks_msg Message to publish.
+ */
 void device_au_radar_node::publishRadarTrackMsg(radar_msgs::msg::RadarTracks &radar_tracks_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_track->publish(radar_tracks_msg);
 }
 
+/**
+ * @brief Thread-safe publish of a PointCloud2 message on /device/au/radar/point_cloud2.
+ *
+ * @param radar_cloud_msg Message to publish.
+ */
 void device_au_radar_node::publishRadarPointCloud2(sensor_msgs::msg::PointCloud2& radar_cloud_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_point_cloud2->publish(radar_cloud_msg);
 }
 
+/**
+ * @brief Thread-safe publish of a RadarHealth message on /device/au/radar/status.
+ *
+ * @param radar_health_msg Message to publish.
+ */
 void device_au_radar_node::publishHeartbeat(mon_msgs::msg::RadarHealth& radar_health_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_mon->publish(radar_health_msg);
 }
 
+/**
+ * @brief Registers interruptHandler() for SIGINT and SIGHUP.
+ *
+ * @return 0 always.
+ */
 int device_au_radar_node::initInterruptHandler(void) {
     signal(SIGINT, interruptHandler);
     signal(SIGHUP, interruptHandler);

@@ -17,6 +17,11 @@
 
 namespace au_4d_radar {
 
+/**
+ * @brief Constructs an AdmTFListener and starts a 1-second wall timer for TF lookups.
+ *
+ * @param node Pointer to the owning radar node, used for clock, timers, and logging.
+ */
 AdmTFListener::AdmTFListener(device_au_radar_node* node): radar_node_(node) {
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(radar_node_->get_clock());
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(radar_node_->get_node_base_interface(), radar_node_->get_node_timers_interface());
@@ -27,6 +32,13 @@ AdmTFListener::AdmTFListener(device_au_radar_node* node): radar_node_(node) {
     RCLCPP_DEBUG(radar_node_->get_logger(), "AdmTFListener created!");
 }
 
+/**
+ * @brief Timer callback that queries TF2 for each known radar frame and updates YAML config.
+ *
+ * @details Iterates over predefined radar frame names (RADAR_FRONT, etc.), skips frames that
+ *          are not yet available, and calls YamlParser::setRadarInfo() when the transform
+ *          values have changed since the last poll.
+ */
 void AdmTFListener::lookupTransform() {
     geometry_msgs::msg::TransformStamped transform;
 
@@ -86,6 +98,12 @@ void AdmTFListener::lookupTransform() {
     }
 }
 
+/**
+ * @brief Converts a TF2 transform's quaternion rotation to roll, pitch, yaw (radians).
+ *
+ * @param transform Transform stamped message containing the quaternion to convert.
+ * @return std::tuple<double, double, double> containing (roll, pitch, yaw) in radians.
+ */
 std::tuple<double, double, double> AdmTFListener::TransformToRPY(const geometry_msgs::msg::TransformStamped& transform) {
     double qx = transform.transform.rotation.x;
     double qy = transform.transform.rotation.y;

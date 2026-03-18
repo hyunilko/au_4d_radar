@@ -33,6 +33,12 @@ enum HeaderType {
 
 namespace au_4d_radar {
 
+/**
+ * @brief Constructs a PcanLongFrameHandler.
+ *
+ * @param node Pointer to the owning ROS2 radar node (used for publishing and logging).
+ * @param can  Reference to the transport layer for sending and receiving CAN frames.
+ */
 PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can)
     : radar_node_(node),
       message_parser_(node->get_logger()),
@@ -44,11 +50,21 @@ PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTra
 {
 }
 
+/**
+ * @brief Destructor. Calls stop() to cleanly terminate all worker threads.
+ */
 PcanLongFrameHandler::~PcanLongFrameHandler()
 {
     stop();
 }
 
+/**
+ * @brief Initialises the PCAN interface and starts the receive and process threads.
+ *
+ * @details Calls initialize() to open the CAN channel and install the RX callback,
+ *          then spawns the receiveMessagesTwoQueues() and processMessages() threads.
+ *          Logs an error and returns without starting threads if initialisation fails.
+ */
 void PcanLongFrameHandler::start()
 {
     if (initialize())
@@ -62,6 +78,9 @@ void PcanLongFrameHandler::start()
     }
 }
 
+/**
+ * @brief Signals all worker threads to stop, joins them, and shuts down the CAN interface.
+ */
 void PcanLongFrameHandler::stop()
 {
     receive_running.store(false);
@@ -91,6 +110,16 @@ void PcanLongFrameHandler::stop()
     can_.shutdown();
 }
 
+/**
+ * @brief Opens the PCAN channel and installs the long-frame RX callback.
+ *
+ * @details Reads YAML settings (point-cloud mode, message number), calls
+ *          PcanFdTransfer::init(), and registers the lambda that validates
+ *          incoming payloads and pushes them onto the shared message queue.
+ *
+ * @return true  on successful initialisation.
+ * @return false if PCAN init fails.
+ */
 bool PcanLongFrameHandler::initialize()
 {
     point_cloud2_setting_ = YamlParser::readPointCloud2Setting("POINT_CLOUD2");
@@ -144,6 +173,13 @@ bool PcanLongFrameHandler::initialize()
     return true;
 }
 
+/**
+ * @brief Lifecycle thread kept for compatibility; RX is handled by pcanRxDispatchLoop.
+ *
+ * @details The actual CAN receive pump runs in device_au_radar_node::pcanRxDispatchLoop
+ *          which calls handle_can_frame() directly. This thread simply sleeps until
+ *          receive_running is cleared.
+ */
 void PcanLongFrameHandler::receiveMessagesTwoQueues()
 {
     /* RX polling is handled by pcanRxDispatchLoop in device_au_radar_node.
@@ -153,11 +189,27 @@ void PcanLongFrameHandler::receiveMessagesTwoQueues()
     }
 }
 
+/**
+ * @brief Dispatches an incoming CAN frame to the owned PcanLongFrame assembler.
+ *
+ * @param can_id   CAN ID of the received frame.
+ * @param data     Pointer to the frame payload bytes.
+ * @param data_len Length of the frame payload.
+ * @return true  if the frame was consumed by the long-frame handler.
+ * @return false if the CAN ID does not belong to the long-frame RX range.
+ */
 bool PcanLongFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
 {
     return long_frame_.handle_long_can_frame(can_id, data, data_len);
 }
 
+/**
+ * @brief Consumer thread that dequeues reassembled payloads and routes them by unique_id.
+ *
+ * @details For each payload, reads the unique_id from bytes 4–7 (little-endian), pushes
+ *          the buffer into the per-client queue, and spawns a dedicated processClientMessages
+ *          thread for that unique_id if one is not already running.
+ */
 void PcanLongFrameHandler::processMessages() {
     std::vector<uint8_t> buffer(BUFFER_SIZE);
     while (process_running.load()) {
@@ -203,6 +255,14 @@ void PcanLongFrameHandler::processMessages() {
     }
 }
 
+/**
+ * @brief Per-client worker thread that dequeues and parses messages for one unique_id.
+ *
+ * @details Reads the 4-byte message-type field (bytes 0–3, little-endian) and dispatches
+ *          to handleRadarScanMessage() or handleRadarTrackMessage() based on the HeaderType.
+ *
+ * @param unique_id The sensor unique ID this thread is dedicated to processing.
+ */
 void PcanLongFrameHandler::processClientMessages(uint32_t unique_id) {
     radar_msgs::msg::RadarScan radar_scan_msg;
     sensor_msgs::msg::PointCloud2 radar_cloud_msg;
@@ -244,6 +304,14 @@ void PcanLongFrameHandler::processClientMessages(uint32_t unique_id) {
     }
 }
 
+/**
+ * @brief Parses a HEADER_SCAN payload and publishes RadarScan and (optionally) PointCloud2.
+ *
+ * @param buffer             Raw payload buffer (modified via move on queue pop).
+ * @param radar_scan_msg     Accumulates RadarReturn entries across packets; cleared after publish.
+ * @param radar_cloud_msg    Accumulates point-cloud data; cleared after assembly.
+ * @param radar_cloud_buffer Rolling buffer of recent PointCloud2 messages for multi-frame assembly.
+ */
 void PcanLongFrameHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarScan& radar_scan_msg,
         sensor_msgs::msg::PointCloud2& radar_cloud_msg, std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer) {
 
@@ -346,12 +414,25 @@ void PcanLongFrameHandler::mergePointCloud(const sensor_msgs::msg::PointCloud2& 
                                  std::make_move_iterator(multiple_cloud_messages.data.end()));
 }
 
+/**
+ * @brief Detects whether the 10 ms time-sync bucket has changed since the last call.
+ *
+ * @param time_sync_cloud Current time-sync value (nanosec / 10,000,000).
+ * @return true  if the value differs from the previous call (new sync window).
+ * @return false if the value is unchanged.
+ */
 bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud) {
     bool isNew = (time_sync_pre_cloud_ != time_sync_cloud);
     time_sync_pre_cloud_ = time_sync_cloud;
     return isNew;
 }
 
+/**
+ * @brief Parses a HEADER_TRACK payload and publishes a RadarTracks message.
+ *
+ * @param buffer           Raw payload buffer.
+ * @param radar_tracks_msg Accumulates RadarTrack entries; cleared after publish.
+ */
 void PcanLongFrameHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg) {
     bool completeRadarTrackMsg = false;
     {
@@ -365,6 +446,15 @@ void PcanLongFrameHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer,
     }
 }
 
+/**
+ * @brief Sends an application payload to a radar device via the long-frame transport.
+ *
+ * @param device_id   Target device index.
+ * @param msg_id      Application message ID placed in the App-PDU header.
+ * @param payload     Pointer to the payload bytes.
+ * @param payload_len Length of the payload in bytes.
+ * @return payload_len on success, -1 on failure.
+ */
 int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                         const uint8_t* payload, int payload_len)
 {
