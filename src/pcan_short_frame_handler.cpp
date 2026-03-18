@@ -9,11 +9,12 @@
 namespace au_4d_radar
 {
 
-PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node, 
+PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
                                              PcanFdTransfer& can,
                                              rclcpp::Logger logger,
                                              bool quiet)
     : can_(can)
+    , short_frame_(can, can.short_frame_config())
     , logger_(std::move(logger))
     , quiet_(quiet)
     , radar_node_(node)
@@ -22,7 +23,7 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 
 void PcanShortFrameHandler::start(void)
 {
-    can_.set_short_rx_callback([this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
+    short_frame_.set_rx_callback([this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
         {
             this->handle_short_frame(dev_id, cmd, uniq_id, data);
         });
@@ -35,7 +36,7 @@ void PcanShortFrameHandler::start(void)
 
 void PcanShortFrameHandler::stop(void)
 {
-    can_.set_short_rx_callback(PcanFdTransfer::ShortRxCallback{});
+    short_frame_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
 
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = AckCallback{};
@@ -46,6 +47,11 @@ void PcanShortFrameHandler::stop(void)
     {
         RCLCPP_INFO(logger_, "PcanShortFrameHandler stopped");
     }
+}
+
+bool PcanShortFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
+{
+    return short_frame_.handle_short_can_frame(can_id, data, data_len);
 }
 
 void PcanShortFrameHandler::set_ack_callback(AckCallback cb)

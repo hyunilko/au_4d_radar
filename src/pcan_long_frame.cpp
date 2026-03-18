@@ -216,17 +216,3 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     st.reset();
 }
 
-/* PcanFdTransfer long wrapper implementations */
-void PcanFdTransfer::set_long_rx_callback(LongRxCallback cb)
-{
-    if (long_frame_) {
-        long_frame_->set_rx_callback(std::move(cb));
-    }
-}
-
-bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
-{
-    return (long_frame_ != nullptr)
-        ? long_frame_->send_long_payload(dev_id, msg_id, payload, payload_len)
-        : false;
-}

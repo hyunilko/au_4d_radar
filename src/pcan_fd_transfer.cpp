@@ -6,16 +6,13 @@
 
 #include "pcan_fd_transfer.hpp"
 
-PcanFdTransfer::PcanFdTransfer(const Config& cfg)
+PcanFdTransfer::PcanFdTransfer(const Config& cfg,
+                               const PcanShortFrameConfig& short_cfg,
+                               const PcanLongFrameConfig& long_cfg)
     : cfg_(cfg)
+    , short_cfg_(short_cfg)
+    , long_cfg_(long_cfg)
 {
-    short_frame_ = std::make_unique<PcanShortFrame>(
-        *this,
-        PcanShortFrame::Config{cfg_.short_tx_base_id, cfg_.short_rx_base_id, cfg_.device_count, cfg_.quiet});
-
-    long_frame_ = std::make_unique<PcanLongFrame>(
-        *this,
-        PcanLongFrame::Config{cfg_.long_tx_base_id, cfg_.long_rx_base_id, cfg_.device_count, cfg_.rx_buf_size, cfg_.quiet});
 }
 
 PcanFdTransfer::~PcanFdTransfer()
@@ -28,6 +25,11 @@ void PcanFdTransfer::print_pcan_err(const char* tag, TPCANStatus st)
     char err[256] = {0};
     CAN_GetErrorText(st, 0, err);
     RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransfer"), "%s: %s (0x%X)", tag, err, static_cast<unsigned>(st));
+}
+
+bool PcanFdTransfer::is_quiet(void) const
+{
+    return short_cfg_.quiet && long_cfg_.quiet;
 }
 
 bool PcanFdTransfer::init(void)
@@ -45,15 +47,16 @@ bool PcanFdTransfer::init(void)
 
     initialized_ = true;
 
-    if (!cfg_.quiet) {
+    if (!is_quiet()) {
         RCLCPP_INFO(
             rclcpp::get_logger("PcanFdTransfer"),
-            "PCAN init OK. dev=%u short_tx=0x%03X short_rx=0x%03X long_tx=0x%03X long_rx=0x%03X",
-            cfg_.device_count,
-            cfg_.short_tx_base_id,
-            cfg_.short_rx_base_id,
-            cfg_.long_tx_base_id,
-            cfg_.long_rx_base_id);
+            "PCAN init OK. short(dev=%u tx=0x%03X rx=0x%03X) long(dev=%u tx=0x%03X rx=0x%03X)",
+            short_cfg_.device_count,
+            short_cfg_.tx_base_id,
+            short_cfg_.rx_base_id,
+            long_cfg_.device_count,
+            long_cfg_.tx_base_id,
+            long_cfg_.rx_base_id);
     }
 
     return true;
@@ -114,7 +117,7 @@ bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t len
             return true;
         }
 
-        if (!cfg_.quiet) {
+        if (!is_quiet()) {
             print_pcan_err("CAN_WriteFD send_data", st);
         }
         usleep(1000);
@@ -146,7 +149,7 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
             return true;
         }
 
-        if (!cfg_.quiet) {
+        if (!is_quiet()) {
             print_pcan_err("CAN_WriteFD send_frame64", st);
         }
         usleep(1000);
@@ -155,60 +158,64 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
     return false;
 }
 
-void PcanFdTransfer::poll_rx(void)
+bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
 {
+    PcanLongFrame long_frame(*this, long_cfg_);
+    return long_frame.send_long_payload(dev_id, msg_id, payload, payload_len);
+}
+
+bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id,
+                                        ShortCanCmd cmd,
+                                        uint32_t uniq_id,
+                                        const uint8_t* payload,
+                                        uint8_t payload_len)
+{
+    PcanShortFrame short_frame(*this, short_cfg_);
+    return short_frame.send_short_command_with_data(dev_id, cmd, uniq_id, payload, payload_len);
+}
+
+PcanFdTransfer::ReadStatus PcanFdTransfer::read_frame(RxFrame& out)
+{
+    out = RxFrame{};
+
     if (!initialized_) {
-        return;
+        return ReadStatus::Error;
     }
 
-    while (true) {
-        TPCANMsgFD rx{};
-        TPCANTimestampFD ts = 0;
+    TPCANMsgFD rx{};
+    TPCANTimestampFD ts = 0;
 
-        TPCANStatus st;
-        {
-            std::lock_guard<std::mutex> lk(io_mtx_);
-            st = CAN_ReadFD(cfg_.handle, &rx, &ts);
-        }
-
-        if (st == PCAN_ERROR_QRCVEMPTY) {
-            break;
-        }
-
-        if (st != PCAN_ERROR_OK) {
-            if (!cfg_.quiet) {
-                print_pcan_err("CAN_ReadFD", st);
-            }
-            continue;
-        }
-
-        if ((rx.MSGTYPE & PCAN_MESSAGE_STATUS) != 0u) {
-            if (!cfg_.quiet) {
-                const uint32_t ec = Conversion::be_to_u32(rx.DATA);
-                print_pcan_err("[STATUS]", static_cast<TPCANStatus>(ec));
-            }
-            continue;
-        }
-
-        const uint8_t data_len = dlc_to_len(rx.DLC);
-        const uint32_t can_id = static_cast<uint32_t>(rx.ID);
-
-        // RCLCPP_INFO(rclcpp::get_logger("PcanFdTransfer"),
-        //             "PcanFdTransfer::poll_rx() CAN ID: 0x%03X len=%u",
-        //             can_id, data_len);
-
-        if (short_frame_ && short_frame_->handle_short_can_frame(can_id, rx.DATA, data_len)) {
-            continue;
-        }
-
-        if (long_frame_ && long_frame_->handle_long_can_frame(can_id, rx.DATA, data_len)) {
-            continue;
-        }
-
-        if (!cfg_.quiet) {
-            RCLCPP_WARN(rclcpp::get_logger("PcanFdTransfer"),
-                        "Unknown CAN ID: 0x%03X len=%u",
-                        can_id, data_len);
-        }
+    TPCANStatus st;
+    {
+        std::lock_guard<std::mutex> lk(io_mtx_);
+        st = CAN_ReadFD(cfg_.handle, &rx, &ts);
     }
+
+    if (st == PCAN_ERROR_QRCVEMPTY) {
+        return ReadStatus::Empty;
+    }
+
+    if (st != PCAN_ERROR_OK) {
+        if (!is_quiet()) {
+            print_pcan_err("CAN_ReadFD", st);
+        }
+        out.status = st;
+        return ReadStatus::Error;
+    }
+
+    if ((rx.MSGTYPE & PCAN_MESSAGE_STATUS) != 0u) {
+        out.is_status = true;
+        out.status = static_cast<TPCANStatus>(Conversion::be_to_u32(rx.DATA));
+
+        if (!is_quiet()) {
+            print_pcan_err("[STATUS]", out.status);
+        }
+        return ReadStatus::Status;
+    }
+
+    out.can_id = static_cast<uint32_t>(rx.ID);
+    out.data_len = dlc_to_len(rx.DLC);
+    std::memcpy(out.data, rx.DATA, out.data_len);
+
+    return ReadStatus::Ok;
 }

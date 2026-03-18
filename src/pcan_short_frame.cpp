@@ -97,7 +97,7 @@ bool PcanShortFrame::handle_short_can_frame(uint32_t can_id, const uint8_t* data
 
 /**
  * 🧿 CAN 통신 Short Frame 구조 정의 (Header[8B] + Payload)
- * - Application Layer: Application PDU = frameID(4B, BE) + frameCnt(4B, BE) + payloadTotalLen(4B, BE) + Payload
+ * - Application Layer: COMMAND PDU = commandID(4B, BE) + uniqueID(4B, BE) + Payload
  * - 00 ~ 03 byte: command indentification(4 bytes, big-endian, XX XX XX XX)
  * - 04 ~ 07 byte: unique indentification(4 bytes, big-endian, YY YY YY YY)
  * - 8 ~        : Payload
@@ -139,20 +139,3 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
     }
 }
 
-void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
-{
-    if (short_frame_) {
-        short_frame_->set_rx_callback(std::move(cb));
-    }
-}
-/* PcanFdTransfer long wrapper implementations */
-bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id,
-                                              ShortCanCmd cmd,
-                                              uint32_t uniq_id,
-                                              const uint8_t* payload,
-                                              uint8_t payload_len)
-{
-    return (short_frame_ != nullptr)
-        ? short_frame_->send_short_command_with_data(dev_id, cmd, uniq_id, payload, payload_len)
-        : false;
-}

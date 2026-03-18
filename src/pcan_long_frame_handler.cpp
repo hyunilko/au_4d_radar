@@ -1,7 +1,7 @@
 /**
- * @file radar_packet_handler.cpp
+ * @file pcan_long_frame_handler.cpp
  * @author Antonio Ko(antonioko@au-sensor.com)
- * @brief Implementation of the radar_can_packet_handler class for processing incoming radar data.
+ * @brief Implementation of the pcan_long_frame_handler class for processing incoming radar data.
  * @version 1.0
  * @date 2026-03-09
  *
@@ -39,7 +39,8 @@ PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTra
       receive_running(true),
       process_running(true),
       process_runnings(true),
-      can_(can)
+      can_(can),
+      long_frame_(can, can.long_frame_config())
 {
 }
 
@@ -86,7 +87,7 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    can_.set_long_rx_callback(PcanFdTransfer::LongRxCallback{});
+    long_frame_.set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
     can_.shutdown();
 }
 
@@ -103,7 +104,7 @@ bool PcanLongFrameHandler::initialize()
         return false;
     }
 
-    can_.set_long_rx_callback([this](uint8_t dev_id,
+    long_frame_.set_rx_callback([this](uint8_t dev_id,
                                  uint32_t frame_id,
                                  uint32_t frame_count,
                                  uint32_t msg_id,
@@ -145,11 +146,16 @@ bool PcanLongFrameHandler::initialize()
 
 void PcanLongFrameHandler::receiveMessagesTwoQueues()
 {
-    while (receive_running.load())
-    {
-        can_.poll_rx();
-        usleep(1000);
+    /* RX polling is handled by pcanRxDispatchLoop in device_au_radar_node.
+     * This thread is kept for lifecycle compatibility only. */
+    while (receive_running.load()) {
+        usleep(100000);
     }
+}
+
+bool PcanLongFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
+{
+    return long_frame_.handle_long_can_frame(can_id, data, data_len);
 }
 
 void PcanLongFrameHandler::processMessages() {

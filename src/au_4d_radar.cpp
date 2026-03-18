@@ -1,4 +1,4 @@
-  /**
+/**
  * @file au_4d_radar.cpp
  * @author antonioko@au-sensor.com
  * @brief
@@ -9,25 +9,47 @@
  *
  */
 
+#include <unistd.h>
+
 #include "au_4d_radar.hpp"
 #include "util/yamlParser.hpp"
 
-#define PUB_TIME 	10ms
+#define PUB_TIME 10ms
 
 namespace au_4d_radar {
+
+namespace {
+PcanFdTransfer::Config make_pcan_fd_transfer_config()
+{
+    return PcanFdTransfer::Config{};
+}
+
+PcanShortFrameConfig make_pcan_short_frame_config()
+{
+    return PcanShortFrameConfig{};
+}
+
+PcanLongFrameConfig make_pcan_long_frame_config()
+{
+    return PcanLongFrameConfig{};
+}
+} // namespace
 
 device_au_radar_node* device_au_radar_node::instance_ = nullptr;
 
 device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
 : Node("device_au_radar_node", options),
-  can_fd_transfer_(PcanFdTransfer::Config{}),
-  can_short_handler_(this, can_fd_transfer_), can_long_handler_(this, can_fd_transfer_), adm_tf_listener_(this)
+  can_fd_transfer_(make_pcan_fd_transfer_config(),
+                   make_pcan_short_frame_config(),
+                   make_pcan_long_frame_config()),
+  can_short_handler_(this, can_fd_transfer_),
+  can_long_handler_(this, can_fd_transfer_),
+  adm_tf_listener_(this)
 {
     instance_ = this;
 
-    // https://docs.ros2.org/foxy/api/rmw/types_8h.html
     rclcpp::QoS qos = rclcpp::SensorDataQoS();
-    qos.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE); // RMW_QOS_POLICY_RELIABILITY_RELIABLE RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT
+    qos.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
     pub_radar_point_cloud2 = this->create_publisher<sensor_msgs::msg::PointCloud2>(
                     "/device/au/radar/point_cloud2", qos);
 
@@ -53,8 +75,67 @@ device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions & options)
     YamlParser::init();
     can_long_handler_.start();
     can_short_handler_.start();
+    startPcanRxDispatch();
 
     RCLCPP_DEBUG(this->get_logger(), "Start AU 4D Radar Driver Node");
+}
+
+device_au_radar_node::~device_au_radar_node()
+{
+    stopPcanRxDispatch();
+    can_long_handler_.stop();
+    can_short_handler_.stop();
+}
+
+void device_au_radar_node::startPcanRxDispatch(void)
+{
+    if (pcan_rx_running_.exchange(true)) {
+        return;
+    }
+
+    pcan_rx_thread_ = std::thread(&device_au_radar_node::pcanRxDispatchLoop, this);
+}
+
+void device_au_radar_node::stopPcanRxDispatch(void)
+{
+    pcan_rx_running_.store(false);
+    if (pcan_rx_thread_.joinable()) {
+        pcan_rx_thread_.join();
+    }
+}
+
+void device_au_radar_node::pcanRxDispatchLoop(void)
+{
+    while (pcan_rx_running_.load()) {
+        PcanFdTransfer::RxFrame frame{};
+        const PcanFdTransfer::ReadStatus st = can_fd_transfer_.read_frame(frame);
+
+        if (st == PcanFdTransfer::ReadStatus::Empty) {
+            usleep(1000);
+            continue;
+        }
+
+        if (st != PcanFdTransfer::ReadStatus::Ok) {
+            continue;
+        }
+
+        if (can_short_handler_.handle_can_frame(frame.can_id, frame.data, frame.data_len)) {
+            continue;
+        }
+
+        if (can_long_handler_.handle_can_frame(frame.can_id, frame.data, frame.data_len)) {
+            continue;
+        }
+
+        const bool quiet = can_fd_transfer_.short_frame_config().quiet &&
+                           can_fd_transfer_.long_frame_config().quiet;
+        if (!quiet) {
+            RCLCPP_WARN(this->get_logger(),
+                        "Unknown CAN ID: 0x%03X len=%u",
+                        frame.can_id,
+                        frame.data_len);
+        }
+    }
 }
 
 void device_au_radar_node::interruptHandler(int sig) {
@@ -63,6 +144,7 @@ void device_au_radar_node::interruptHandler(int sig) {
     if (sig == SIGINT || sig == SIGHUP || sig == SIGKILL || sig == SIGSEGV || sig == SIGTERM) {
         RCLCPP_ERROR(rclcpp::get_logger("radar_node"), "interruptHandler performed");
 
+        instance_->stopPcanRxDispatch();
         instance_->can_long_handler_.stop();
         instance_->can_short_handler_.stop();
 
@@ -84,8 +166,6 @@ void device_au_radar_node::get_param(rclcpp::Node::SharedPtr nh, const std::stri
 void device_au_radar_node::publishRadarScanMsg(radar_msgs::msg::RadarScan &radar_scan_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_scan->publish(radar_scan_msg);
-   //  RCLCPP_DEBUG(this->get_logger(), "pub_radar_scan id %s 50ms %02u",
-    //     radar_scan_msg.header.frame_id.c_str(), radar_scan_msg.header.stamp.nanosec / 10000000);
 }
 
 void device_au_radar_node::publishRadarTrackMsg(radar_msgs::msg::RadarTracks &radar_tracks_msg) {
@@ -96,23 +176,16 @@ void device_au_radar_node::publishRadarTrackMsg(radar_msgs::msg::RadarTracks &ra
 void device_au_radar_node::publishRadarPointCloud2(sensor_msgs::msg::PointCloud2& radar_cloud_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_point_cloud2->publish(radar_cloud_msg);
-    // RCLCPP_DEBUG(this->get_logger(), "pub_radar_point_cloud2 id %s 50ms %02u",
-    //     radar_cloud_msg.header.frame_id.c_str(), radar_cloud_msg.header.stamp.nanosec / 10000000);
 }
 
 void device_au_radar_node::publishHeartbeat(mon_msgs::msg::RadarHealth& radar_health_msg) {
     std::lock_guard<std::mutex> lock(mtx_msg_publisher);
     pub_radar_mon->publish(radar_health_msg);
-    // RCLCPP_DEBUG(this->get_logger(), "pub_radar_mon hostname : %s status: %u tv_sec: %u",
-    // radar_health_msg.client_hostname.c_str(), radar_health_msg.status, radar_health_msg.tv_sec);
 }
 
 int device_au_radar_node::initInterruptHandler(void) {
     signal(SIGINT, interruptHandler);
     signal(SIGHUP, interruptHandler);
-    // signal(SIGSEGV, interruptHandler);
-    // signal(SIGKILL, interruptHandler);
-    // signal(SIGTERM, interruptHandler);
     return 0;
 }
 
