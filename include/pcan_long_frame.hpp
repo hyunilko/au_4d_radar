@@ -19,11 +19,7 @@ struct PcanLongFrameConfig
 class PcanLongFrame
 {
 public:
-    using RxCallback = std::function<void(uint8_t dev_id,
-                                          uint32_t frame_id,
-                                          uint32_t frame_count,
-                                          uint32_t msg_id,
-                                          std::vector<uint8_t>&& payload)>;
+    using LongFrameRxCallback = std::function<void(uint8_t dev_id, uint32_t frame_id, uint32_t frame_count, uint32_t msg_id, std::vector<uint8_t>&& payload)>;
 
     using Config = PcanLongFrameConfig;
 
@@ -32,7 +28,7 @@ public:
     bool send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
     bool handle_long_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
 
-    void set_rx_callback(RxCallback cb);
+    void set_rx_callback(LongFrameRxCallback cb);
 
 private:
     struct RxState
@@ -57,7 +53,7 @@ private:
 private:
     PcanFdTransfer& pcan_;
     Config cfg_;
-    RxCallback rx_cb_;
+    LongFrameRxCallback rx_cb_;
     std::vector<RxState> rx_states_;
     std::vector<uint32_t> tx_frame_count_;
 };

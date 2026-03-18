@@ -35,7 +35,7 @@ void PcanShortFrameHandler::start(void)
 
 void PcanShortFrameHandler::stop(void)
 {
-    can_.set_short_rx_callback(ShortFrameRxCallback{});
+    can_.set_short_rx_callback(PcanFdTransfer::ShortRxCallback{});
 
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = AckCallback{};
@@ -140,7 +140,7 @@ void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint
 void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data)
 {
 
-  //  RCLCPP_INFO(rclcpp::get_logger("PcanShortFrameHandler"),
+  //  RCLCPP_INFO(logger_,
   //              "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%lu",
   //              dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
 
@@ -167,7 +167,7 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, 
             break;
 
         default:
-            RCLCPP_WARN(rclcpp::get_logger("PcanShortFrameHandler"),
+            RCLCPP_WARN(logger_,
                         "[Short RX] Unknown cmd=0x%08X from dev=%u",
                         static_cast<uint32_t>(cmd), dev_id);
             break;
@@ -179,7 +179,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
 {
     struct timespec ts{};
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-        RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrameHandler"), "send_time_sync: clock_gettime failed");
+        RCLCPP_ERROR(logger_, "send_time_sync: clock_gettime failed");
         return false;
     }
 
@@ -199,7 +199,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
     if (!quiet_) {
-        RCLCPP_DEBUG(radar_node_->get_logger(),
+        RCLCPP_DEBUG(radar_node_->get_logger(), 
                     "send_time_sync: Time: %s, dev=%u, uniq_id=0x%08X",
                     time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }

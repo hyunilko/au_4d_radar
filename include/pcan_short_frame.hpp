@@ -35,11 +35,6 @@ enum class ShortCanCmd : uint32_t
     REQUEST_CONNECTION = 0x41551003u,
 };
 
-using ShortFrameRxCallback = std::function<void(uint8_t dev_id,
-                                                ShortCanCmd cmd,
-                                                uint32_t uniq_id,
-                                                const std::vector<uint8_t>& data)>;
-
 struct PcanShortFrameConfig
 {
     uint16_t tx_base_id = 0x700u; /* PC -> S32 */
@@ -51,16 +46,14 @@ struct PcanShortFrameConfig
 class PcanShortFrame
 {
 public:
+    using ShortFrameRxCallback = std::function<void(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& payload)>;
+
     using Config = PcanShortFrameConfig;
 
     explicit PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
 
     bool send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd);
-    bool send_short_command_with_data(uint8_t dev_id,
-                                      ShortCanCmd cmd,
-                                      uint32_t uniq_id,
-                                      const uint8_t* payload,
-                                      uint8_t payload_len);
+    bool send_short_command_with_data(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const uint8_t* payload, uint8_t payload_len);
 
     bool handle_short_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
 

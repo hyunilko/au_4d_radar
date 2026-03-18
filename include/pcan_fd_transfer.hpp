@@ -14,8 +14,8 @@ extern "C" {
 class PcanFdTransfer
 {
 public:
-    using RxCallback = PcanLongFrame::RxCallback;
-    using ShortRxCallback = ShortFrameRxCallback;
+    using LongRxCallback = PcanLongFrame::LongFrameRxCallback;
+    using ShortRxCallback = PcanShortFrame::ShortFrameRxCallback;
 
     struct Config
     {
@@ -59,7 +59,7 @@ public:
     void poll_rx(void);
 
     /* RX callback registration */
-    void set_rx_callback(RxCallback cb);
+    void set_rx_callback(LongRxCallback cb);
     void set_short_rx_callback(ShortRxCallback cb);
 
 private:

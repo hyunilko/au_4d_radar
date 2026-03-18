@@ -1,5 +1,4 @@
-#ifndef RADAR_CAN_PACKET_HANDLER_INCLUDE_H
-#define RADAR_CAN_PACKET_HANDLER_INCLUDE_H
+#pragma once
 
 #include <condition_variable>
 #include <string>
@@ -91,4 +90,3 @@ namespace au_4d_radar
 
 } // namespace au_4d_radar
 
-#endif // RADAR_CAN_PACKET_HANDLER_INCLUDE_H

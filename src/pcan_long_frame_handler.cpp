@@ -16,10 +16,10 @@
 #include "au_4d_radar.hpp"
 #include "util/conversion.hpp"
 #include "util/yamlParser.hpp"
-#include "radar_can_packet_handler.hpp"
+#include "pcan_long_frame_handler.hpp"
 
 #include "pcan_fd_transfer.hpp"
-// #include "pcan_short_frame_handler.hpp"
+
 
 #define BUFFER_SIZE     2048
 #define MSG_TYPE_OFFSET 4
@@ -86,7 +86,7 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    can_.set_rx_callback(PcanFdTransfer::RxCallback{});
+    can_.set_rx_callback(PcanFdTransfer::LongRxCallback{});
     can_.shutdown();
 }
 

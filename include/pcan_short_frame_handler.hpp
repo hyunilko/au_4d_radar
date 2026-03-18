@@ -40,14 +40,6 @@ namespace au_4d_radar
         void stop(void);
 
         void set_ack_callback(AckCallback cb);
-
-        bool send_hi(uint8_t dev_id);
-        bool send_request_connection(uint8_t dev_id);
-        bool send_time_sync(uint8_t dev_id);
-        bool send_sensor_start(uint8_t dev_id, const uint8_t* payload = nullptr, uint8_t payload_len = 0u);
-        bool send_sensor_stop(uint8_t dev_id, const uint8_t* payload = nullptr, uint8_t payload_len = 0u);
-        bool send_reset(uint8_t dev_id, const uint8_t* payload = nullptr, uint8_t payload_len = 0u);
-
         bool wait_for_ack(uint8_t dev_id, ShortCanCmd cmd, AckMessage& out,
                         std::chrono::milliseconds timeout = std::chrono::milliseconds(1000));
 
@@ -59,7 +51,7 @@ namespace au_4d_radar
         static AckKey make_ack_key(uint8_t dev_id, ShortCanCmd cmd);
         void handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
         void handle_short_frame(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const std::vector<uint8_t>& data);
-        bool send_time_sync(uint8_t dev_id, uint32_t uniq_id);                            
+        bool send_time_sync(uint8_t dev_id, uint32_t uniq_id);
 
         PcanFdTransfer& can_;
         rclcpp::Logger logger_;

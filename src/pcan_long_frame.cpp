@@ -29,15 +29,12 @@ PcanLongFrame::PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg)
     tx_frame_count_.assign(cfg_.device_count, 0u);
 }
 
-void PcanLongFrame::set_rx_callback(RxCallback cb)
+void PcanLongFrame::set_rx_callback(LongFrameRxCallback cb)
 {
     rx_cb_ = std::move(cb);
 }
 
-bool PcanLongFrame::send_long_payload(uint8_t dev_id,
-                                      uint32_t msg_id,
-                                      const uint8_t* payload,
-                                      int payload_len)
+bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
 {
     if (!pcan_.initialized_ || payload == nullptr || payload_len <= 0) {
         return false;
@@ -145,9 +142,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
             st.reset();
             RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
                          "Long TP seq mismatch dev=%u seq=%u expect=%u",
-                         dev_id,
-                         seq,
-                         expect);
+                         dev_id, seq, expect);
             return;
         }
     }
@@ -155,9 +150,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     if ((st.len + CHUNK_LENGTH) > st.buf.size()) {
         RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
                      "Long TP buffer overflow dev=%u len=%u buf_size=%zu",
-                     dev_id,
-                     st.len,
-                     st.buf.size());
+                     dev_id, st.len, st.buf.size());
         st.reset();
         return;
     }
@@ -181,9 +174,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
 
     if (st.len < APP_PDU_HEADER_LENGTH) {
         st.reset();
-        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
-                     "Long TP short AppPDU dev=%u",
-                     dev_id);
+        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"), "Long TP short AppPDU dev=%u", dev_id);
         return;
     }
 
@@ -197,9 +188,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
         if (!cfg_.quiet) {
             RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
                          "[Long TP] bad frame magic dev=%u frame_id=0x%08X frame_count=%u",
-                         dev_id,
-                         frame_id,
-                         frame_count);
+                         dev_id, frame_id, frame_count);
         }
         st.reset();
         return;
@@ -209,9 +198,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
         if (!cfg_.quiet) {
             RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
                          "[Long TP] length mismatch dev=%u need=%llu have=%u",
-                         dev_id,
-                         static_cast<unsigned long long>(needed),
-                         st.len);
+                         dev_id, static_cast<unsigned long long>(needed), st.len);
         }
         st.reset();
         return;
@@ -230,17 +217,14 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
 }
 
 /* PcanFdTransfer long wrapper implementations */
-void PcanFdTransfer::set_rx_callback(RxCallback cb)
+void PcanFdTransfer::set_rx_callback(LongRxCallback cb)
 {
     if (long_frame_) {
         long_frame_->set_rx_callback(std::move(cb));
     }
 }
 
-bool PcanFdTransfer::send_payload(uint8_t dev_id,
-                                  uint32_t msg_id,
-                                  const uint8_t* payload,
-                                  int payload_len)
+bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
 {
     return (long_frame_ != nullptr)
         ? long_frame_->send_long_payload(dev_id, msg_id, payload, payload_len)
