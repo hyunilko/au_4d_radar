@@ -1,16 +1,19 @@
 /**
  * @file message_parse.cpp
  * @author antonioko@au-sensor.com, kisoo.kim@au-sensor.com
- * @brief Implementation of the MessageParser class for parsing radar data.
- * @version 1.1
- * @date 2024-09-11
+ * @brief Implementation of MessageParser — radar packet decode.
+ * @version 2.0
+ * @date 2026-03-11
  *
  * @copyright Copyright AU (c) 2026
  *
  */
 
-#include <stdint.h>
+#include <cstdint>
 #include <cmath>
+#include <cstring>
+#include <sstream>
+#include <iomanip>
 
 #include "rclcpp/rclcpp.hpp"
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -21,325 +24,284 @@
 #include "util/uuid_helper.hpp"
 #include "util/conversion.hpp"
 
-
-
-struct tsPacketHeader
+/* -----------------------------------------------------------------------
+ * Wire packet header layout (matches S32 firmware).
+ * ----------------------------------------------------------------------- */
+struct TsPacketHeader
 {
-    uint32_t ui32SB;
-    uint32_t ui32UID;
-    uint32_t ui32TS;
-    uint32_t ui32TN;
-    uint32_t ui32FN;
-    float    f32CT;
-    uint32_t ui32TPN;
-    uint32_t ui32PN;
-    uint16_t ui16TPCKN;
-    uint16_t ui16PCKN;
+    uint32_t uid;       /* unique device ID (LE) */
+    uint32_t ts_sec;    /* timestamp seconds (LE) */
+    uint32_t ts_nsec;   /* timestamp nanoseconds (LE) */
+    uint32_t frame_num;
+    float    cycle_time;
+    uint32_t total_points;
+    uint32_t point_num;
+    uint16_t total_pkts;
+    uint16_t pkt_num;
 };
+
+static constexpr size_t   POINT_STEP_SIZE      = 20u;
+static constexpr uint32_t MAX_POINTS_PER_PKT   = 60u;
+static constexpr uint32_t MAX_TOTAL_POINTS     = 1600u;
+static constexpr uint16_t MAX_PKTS             = 28u;
 
 namespace au_4d_radar
 {
 
+/* ----------------------------------------------------------------------- */
 /**
- * @brief Parses a raw sensor packet and appends point data to a PointCloud2 message.
+ * @brief Deserialises a TsPacketHeader from a little-endian byte buffer.
  *
- * @details Reads the tsPacketHeader to get frame metadata, computes Cartesian coordinates
- *          from spherical (range, azimuth, elevation) data using the radar's orientation
- *          from YAML, and appends each point as x/y/z/intensity/velocity floats.
- *          Initialises the PointCloud2 header and field descriptors on the first packet
- *          (PCKN == 1) of each frame.
+ * @param p       Pointer to the start of the header in the buffer.
+ * @param idx_out Set to the number of bytes consumed (sizeof TsPacketHeader = 32).
+ * @return Populated TsPacketHeader.
+ */
+static TsPacketHeader parse_header(const uint8_t* p, uint32_t& idx_out)
+{
+    TsPacketHeader h{};
+    uint32_t i = 0u;
+    h.uid          = Conversion::le_to_u32(&p[i]); i += 4;
+    h.ts_sec       = Conversion::le_to_u32(&p[i]); i += 4;
+    h.ts_nsec      = Conversion::le_to_u32(&p[i]); i += 4;
+    h.frame_num    = Conversion::le_to_u32(&p[i]); i += 4;
+    h.cycle_time   = Conversion::convertToFloat(&p[i]); i += 4;
+    h.total_points  = Conversion::le_to_u32(&p[i]); i += 4;
+    h.point_num    = Conversion::le_to_u32(&p[i]); i += 4;
+    h.total_pkts   = Conversion::le_to_u16(&p[i]); i += 2;
+    h.pkt_num      = Conversion::le_to_u16(&p[i]); i += 2;
+    idx_out = i;
+    return h;
+}
+
+/**
+ * @brief Sanity-checks packet header field ranges and logs an error on failure.
+ *
+ * @param h        Header to validate.
+ * @param frame_id Frame ID string used in the error log message.
+ * @param logger   ROS2 logger for error output.
+ * @return true if all fields are within valid bounds, false otherwise.
+ */
+static bool validate_header(const TsPacketHeader& h,
+                             const std::string& frame_id,
+                             const rclcpp::Logger& logger)
+{
+    if (h.point_num   > MAX_POINTS_PER_PKT ||
+        h.total_points > MAX_TOTAL_POINTS   ||
+        h.total_pkts > MAX_PKTS          ||
+        h.pkt_num    > MAX_PKTS)
+    {
+        RCLCPP_ERROR(logger,
+                     "Header sanity check failed: radar=%s FN=%u TPN=%u PN=%u "
+                     "TPCKN=%u PCKN=%u",
+                     frame_id.c_str(),
+                     h.frame_num, h.total_points, h.point_num,
+                     h.total_pkts, h.pkt_num);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Formats a 32-bit UID as an 8-character lowercase hex string.
+ *
+ * @param uid Sensor unique identifier.
+ * @return Hex string, e.g. "0a1b2c3d".
+ */
+static std::string uid_to_hex(uint32_t uid)
+{
+    std::ostringstream ss;
+    ss << std::hex << std::setw(8) << std::setfill('0') << uid;
+    return ss.str();
+}
+
+/* ----------------------------------------------------------------------- */
+
+/**
+ * @brief Parses one radar scan packet and appends point data to a PointCloud2 message.
+ *
+ * @details Reads the TsPacketHeader, resolves the sensor pose from YAML, converts
+ *          each point from spherical (range/azimuth/elevation) to Cartesian using the
+ *          radar's rotation matrix, and appends x/y/z/intensity/velocity float data.
+ *          Initialises cloud_msg header and field descriptors on pkt_num == 1.
  *
  * @param p_buff    Pointer to the raw payload buffer starting at the UID field.
- * @param cloud_msg PointCloud2 message being assembled; data is appended across packets.
- * @param complete  Set to true when the last packet of the frame (TPCKN == PCKN) is parsed.
+ * @param cloud_msg PointCloud2 being assembled; data is appended across packets.
+ * @param complete  Set to true when the last packet (total_pkts == pkt_num) is parsed.
  */
-void MessageParser::makeRadarPointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::PointCloud2& cloud_msg, bool& complete) {
-    std::lock_guard<std::mutex> lock(mtx_point_cloud2);
-    uint32_t idx = 0;
-    tsPacketHeader header = {};
-    std::stringstream ss;
-    const double deg2rad = M_PI / 180.0f;
-    static constexpr size_t POINT_STEP_SIZE = 20;
+void MessageParser::makeRadarPointCloud2Msg(uint8_t* p_buff,
+                                             sensor_msgs::msg::PointCloud2& cloud_msg,
+                                             bool& complete)
+{
+    uint32_t idx = 0u;
+    const TsPacketHeader header = parse_header(p_buff, idx);
 
-    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32TS = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32TN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32FN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.f32CT = Conversion::convertToFloat(&p_buff[idx]);
-    idx += 4;
-    header.ui32TPN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32PN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui16TPCKN = Conversion::le_to_u16(&p_buff[idx]);
-    idx += 2;
-    header.ui16PCKN = Conversion::le_to_u16(&p_buff[idx]);
-    idx += 2;
+    RadarInfo radar_info = YamlParser::getRadarInfo(header.uid);
+    frame_id_ = radar_info.frame_id.empty()
+                ? uid_to_hex(header.uid)
+                : radar_info.frame_id;
 
-    if(header.ui32PN > 60 ||  header.ui32TPN > 1600 || header.ui16TPCKN > 28 || header.ui16PCKN > 28) {
-        RCLCPP_ERROR(rclcpp::get_logger("point_cloud2_msg"), "Failed to decode  radar_id %s FN %u TPN %u PN %u TPCKN %u PCKN %u",
-                        frame_id_.c_str(), header.ui32FN, header.ui32TPN, header.ui32PN, header.ui16TPCKN, header.ui16PCKN);
+    if (!validate_header(header, frame_id_, logger_)) {
         return;
     }
 
-    // https://github.com/ros2/common_interfaces/blob/rolling/std_msgs/msg/Header.msg
-    RadarInfo radar_info = YamlParser::getRadarInfo(header.ui32UID);
-    frame_id_ = radar_info.frame_id;
-    if(frame_id_.empty()) {
-        // return;
-        ss << std::hex << std::setw(8) << std::setfill('0') << header.ui32UID;
-        frame_id_ = ss.str();
-        // RCLCPP_DEBUG(logger_, "ui32UID %x Not exist in system_info.yaml", header.ui32UID);
-    }
+    complete      = (header.total_pkts == header.pkt_num);
+    stamp_tv_sec_  = header.ts_sec;
+    stamp_tv_nsec_ = header.ts_nsec;
 
-    complete = (header.ui16TPCKN == header.ui16PCKN);
-
-    stamp_tv_sec_ = header.ui32TS;
-    stamp_tv_nsec_ = header.ui32TN;
-
-    // RCLCPP_DEBUG(logger_, "radar_id %s FN %u TPN %u PN %u TPCKN %u PCKN %u",
-    //               frame_id_.c_str(), header.ui32FN, header.ui32TPN, header.ui32PN, header.ui16TPCKN, header.ui16PCKN);
-
-    // https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/PointCloud2.msg
-    if (header.ui16PCKN == 1) {
-        cloud_msg.header.frame_id = frame_id_;
-        cloud_msg.header.stamp.sec = stamp_tv_sec_;
+    if (header.pkt_num == 1u) {
+        cloud_msg.header.frame_id      = frame_id_;
+        cloud_msg.header.stamp.sec     = stamp_tv_sec_;
         cloud_msg.header.stamp.nanosec = stamp_tv_nsec_;
-        cloud_msg.height = 1;
-        cloud_msg.width = header.ui32TPN;  // Width is total points over all packets
-        cloud_msg.is_bigendian = false;
-        cloud_msg.point_step = POINT_STEP_SIZE;
-        cloud_msg.row_step = cloud_msg.point_step * cloud_msg.width;
-        cloud_msg.is_dense = true;
-        cloud_msg.fields.resize(5);
-        cloud_msg.fields[0].name = "x";  cloud_msg.fields[0].offset = 0;
-        cloud_msg.fields[0].datatype = sensor_msgs::msg::PointField::FLOAT32; cloud_msg.fields[0].count = 1;
-        cloud_msg.fields[1].name = "y";  cloud_msg.fields[1].offset = 4;
-        cloud_msg.fields[1].datatype = sensor_msgs::msg::PointField::FLOAT32; cloud_msg.fields[1].count = 1;
-        cloud_msg.fields[2].name = "z";  cloud_msg.fields[2].offset = 8;
-        cloud_msg.fields[2].datatype = sensor_msgs::msg::PointField::FLOAT32; cloud_msg.fields[2].count = 1;
-        cloud_msg.fields[3].name = "intensity"; cloud_msg.fields[3].offset = 12;
-        cloud_msg.fields[3].datatype = sensor_msgs::msg::PointField::FLOAT32; cloud_msg.fields[3].count = 1;
-        cloud_msg.fields[4].name = "velocity"; cloud_msg.fields[4].offset = 16;
-        cloud_msg.fields[4].datatype = sensor_msgs::msg::PointField::FLOAT32; cloud_msg.fields[4].count = 1;
+        cloud_msg.height               = 1u;
+        cloud_msg.width                = header.total_points;
+        cloud_msg.is_bigendian         = false;
+        cloud_msg.point_step           = POINT_STEP_SIZE;
+        cloud_msg.row_step             = POINT_STEP_SIZE * header.total_points;
+        cloud_msg.is_dense             = true;
+
+        cloud_msg.fields.resize(5u);
+        auto set_field = [&](size_t i, const char* name, uint32_t offset) {
+            cloud_msg.fields[i].name     = name;
+            cloud_msg.fields[i].offset   = offset;
+            cloud_msg.fields[i].datatype = sensor_msgs::msg::PointField::FLOAT32;
+            cloud_msg.fields[i].count    = 1u;
+        };
+        set_field(0, "x",        0u);
+        set_field(1, "y",        4u);
+        set_field(2, "z",        8u);
+        set_field(3, "intensity", 12u);
+        set_field(4, "velocity",  16u);
+
         cloud_msg.data.clear();
     }
 
-    // Create a rotation matrix from roll, pitch, yaw (assuming intrinsic rotations in ZYX order)
-    Eigen::Matrix3f rotation_matrix;
-    rotation_matrix = Eigen::AngleAxisf(radar_info.yaw, Eigen::Vector3f::UnitZ()) *   // unit vector (0, 0, 1)
-                      Eigen::AngleAxisf(radar_info.pitch, Eigen::Vector3f::UnitY()) * // unit vector (0, 1, 0)
-                      Eigen::AngleAxisf(radar_info.roll, Eigen::Vector3f::UnitX());   // unit vector (1, 0, 0)
+    /* Build rotation matrix (ZYX intrinsic) */
+    const Eigen::Matrix3f R =
+        (Eigen::AngleAxisf(radar_info.yaw,   Eigen::Vector3f::UnitZ()) *
+         Eigen::AngleAxisf(radar_info.pitch, Eigen::Vector3f::UnitY()) *
+         Eigen::AngleAxisf(radar_info.roll,  Eigen::Vector3f::UnitX())).toRotationMatrix();
 
-    // std::cout << "Rotation Matrix: \n" << rotation_matrix << std::endl;
+    static constexpr double kDeg2Rad = M_PI / 180.0;
 
-    for (uint32_t i = 0; i < header.ui32PN; i++) {
-        //uint32_t index = Conversion::le_to_u32(&p_buff[idx]);
-        idx += 4;
-        float range = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        float velocity = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        float azimuth = Conversion::convertToFloat(&p_buff[idx]); // theta
-        idx += 4;
-        float elevation = Conversion::convertToFloat(&p_buff[idx]); // phi
-        idx += 4;
-        float amplitude = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
+    for (uint32_t i = 0u; i < header.point_num; ++i) {
+        idx += 4u;  /* skip index field */
+        const float range     = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        const float velocity  = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        const float azimuth   = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        const float elevation = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        const float amplitude = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
 
-        // RCLCPP_DEBUG(logger_, "index %u range %f velocity %f azimuth %f elevation %f amplitude %f",
-        //                                                 index, range, velocity, azimuth, elevation, amplitude);
+        const float cos_el = std::cos(static_cast<float>(elevation * kDeg2Rad));
+        const float sin_el = std::sin(static_cast<float>(elevation * kDeg2Rad));
+        const float cos_az = std::cos(static_cast<float>(azimuth * kDeg2Rad));
+        const float sin_az = std::sin(static_cast<float>(azimuth * kDeg2Rad));
 
-        // Convert to Cartesian coordinates in the radar frame
-        float x_local = range * std::cos(elevation * deg2rad) * std::sin(azimuth * deg2rad);
-        float y_local = range * std::cos(elevation * deg2rad) * std::cos(azimuth * deg2rad);
-        float z_local = range * std::sin(elevation * deg2rad);
-        float intensity = amplitude;
+        const Eigen::Vector3f local(range * cos_el * sin_az,
+                                    range * cos_el * cos_az,
+                                    range * sin_el);
+        const Eigen::Vector3f world = R * local;
 
-        // Apply the radar's orientation and position to convert to the world frame
-        Eigen::Vector3f point_local(x_local, y_local, z_local);
-        Eigen::Vector3f point_world = rotation_matrix * point_local;
-        float x = point_world.x() + radar_info.x;
-        float y = point_world.y() + radar_info.y;
-        float z = point_world.z() + radar_info.z;
+        const float px = world.x() + radar_info.x;
+        const float py = world.y() + radar_info.y;
+        const float pz = world.z() + radar_info.z;
 
-        //RCLCPP_DEBUG(logger_, "index %u x %f y %f z %f intensity %f", index, x, y, z, intensity);
-
-        uint8_t point_data[POINT_STEP_SIZE];
-        memcpy(point_data, &x, sizeof(float));
-        memcpy(point_data + 4, &y, sizeof(float));
-        memcpy(point_data + 8, &z, sizeof(float));
-        memcpy(point_data + 12, &intensity, sizeof(float));
-        memcpy(point_data + 16, &velocity, sizeof(float));
-        cloud_msg.data.insert(cloud_msg.data.end(), point_data, point_data + POINT_STEP_SIZE);
+        uint8_t pt[POINT_STEP_SIZE];
+        std::memcpy(pt +  0, &px,        sizeof(float));
+        std::memcpy(pt +  4, &py,        sizeof(float));
+        std::memcpy(pt +  8, &pz,        sizeof(float));
+        std::memcpy(pt + 12, &amplitude, sizeof(float));
+        std::memcpy(pt + 16, &velocity,  sizeof(float));
+        cloud_msg.data.insert(cloud_msg.data.end(), pt, pt + POINT_STEP_SIZE);
     }
 
     if (complete) {
-        if (cloud_msg.point_step == 0) {
-            RCLCPP_WARN(rclcpp::get_logger("point_cloud2_msg"), "point_step is 0, skipping incomplete frame (mid-stream start)");
+        if (cloud_msg.point_step == 0u) {
+            RCLCPP_WARN(logger_,
+                        "point_step is 0, skipping incomplete frame (mid-stream start)");
             complete = false;
             return;
         }
-        cloud_msg.width = cloud_msg.data.size() / cloud_msg.point_step;
+        cloud_msg.width    = static_cast<uint32_t>(cloud_msg.data.size() / cloud_msg.point_step);
+        cloud_msg.row_step = cloud_msg.point_step * cloud_msg.width;
     }
-
 }
 
+/* ----------------------------------------------------------------------- */
+
 /**
- * @brief Parses a raw sensor packet and appends RadarReturn entries to a RadarScan message.
+ * @brief Parses one radar scan packet and appends RadarReturn entries to a RadarScan message.
  *
- * @details Reads the tsPacketHeader for frame metadata, populates the message header on
- *          each call, and appends range/velocity/azimuth/elevation/amplitude returns.
- *
- * @param p_buff        Pointer to the raw payload buffer starting at the UID field.
- * @param radar_scan_msg RadarScan message being assembled; returns are appended across packets.
- * @param complete       Set to true when the last packet of the frame (TPCKN == PCKN) is parsed.
+ * @param p_buff         Pointer to the raw payload buffer starting at the UID field.
+ * @param radar_scan_msg RadarScan being assembled; returns are appended across packets.
+ * @param complete       Set to true when the last packet (total_pkts == pkt_num) is parsed.
  */
-void MessageParser::makeRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan& radar_scan_msg, bool& complete) {
-    std::lock_guard<std::mutex> lock(mtx_radar_scan);
-    uint32_t idx = 0;
-    tsPacketHeader header = {};
-    std::stringstream ss;
+void MessageParser::makeRadarScanMsg(uint8_t* p_buff,
+                                      radar_msgs::msg::RadarScan& radar_scan_msg,
+                                      bool& complete)
+{
+    uint32_t idx = 0u;
+    const TsPacketHeader header = parse_header(p_buff, idx);
 
-    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32TS = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32TN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32FN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.f32CT = Conversion::convertToFloat(&p_buff[idx]);
-    idx += 4;
-    header.ui32TPN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui32PN = Conversion::le_to_u32(&p_buff[idx]);
-    idx += 4;
-    header.ui16TPCKN = Conversion::le_to_u16(&p_buff[idx]);
-    idx += 2;
-    header.ui16PCKN = Conversion::le_to_u16(&p_buff[idx]);
-    idx += 2;
+    RadarInfo radar_info = YamlParser::getRadarInfo(header.uid);
+    frame_id_ = radar_info.frame_id.empty()
+                ? uid_to_hex(header.uid)
+                : radar_info.frame_id;
 
-    if(header.ui32PN > 60 ||  header.ui32TPN > 1600 || header.ui16TPCKN > 28 || header.ui16PCKN > 28) {
-        RCLCPP_ERROR(rclcpp::get_logger("radar_scan"), "Failed to decode  radar_id %s FN %u TPN %u PN %u TPCKN %u PCKN %u",
-                        frame_id_.c_str(), header.ui32FN, header.ui32TPN, header.ui32PN, header.ui16TPCKN, header.ui16PCKN);
+    if (!validate_header(header, frame_id_, logger_)) {
         return;
     }
 
-     // https://github.com/ros2/common_interfaces/blob/rolling/std_msgs/msg/Header.msg
-    RadarInfo radar_info = YamlParser::getRadarInfo(header.ui32UID);
-    frame_id_ = radar_info.frame_id;
-    if(frame_id_.empty()) {
-        ss << std::hex << std::setw(8) << std::setfill('0') << header.ui32UID;
-        frame_id_ = ss.str();
-    }
+    complete      = (header.total_pkts == header.pkt_num);
+    stamp_tv_sec_  = header.ts_sec;
+    stamp_tv_nsec_ = header.ts_nsec;
 
-    complete = (header.ui16TPCKN == header.ui16PCKN);
-
-    stamp_tv_sec_ = header.ui32TS;
-    stamp_tv_nsec_ = header.ui32TN;
-
-        // std::cout << "radar_id "<< std::hex << header.ui32UID << std::endl;
-//    RCLCPP_DEBUG(logger_, "radar_id %08x %s FN %u TPN %u PN %u TPCKN %u PCKN %u",
-//                                                header.ui32UID, frame_id_.c_str(), header.ui32FN, header.ui32TPN, header.ui32PN, header.ui16TPCKN, header.ui16PCKN);
-
-    radar_scan_msg.header.frame_id = frame_id_;
-    radar_scan_msg.header.stamp.sec = stamp_tv_sec_;
+    radar_scan_msg.header.frame_id      = frame_id_;
+    radar_scan_msg.header.stamp.sec     = stamp_tv_sec_;
     radar_scan_msg.header.stamp.nanosec = stamp_tv_nsec_;
 
-    for(uint32_t i = 0; i < header.ui32PN; i++)
-    {
-        radar_msgs::msg::RadarReturn return_msg;
-        // uint32_t index = Conversion::le_to_u32(&p_buff[idx]);
-        idx += 4;
-        return_msg.range = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        return_msg.doppler_velocity = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        return_msg.azimuth = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        return_msg.elevation = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-        return_msg.amplitude = Conversion::convertToFloat(&p_buff[idx]);
-        idx += 4;
-
-        // RCLCPP_DEBUG(logger_, "index %u range %f velocity %f azimuth %f elevation %f amplitude %f",
-        //                                                 index, return_msg.range, return_msg.doppler_velocity, return_msg.azimuth, return_msg.elevation, return_msg.amplitude);
-
-        radar_scan_msg.returns.push_back(return_msg);
+    for (uint32_t i = 0u; i < header.point_num; ++i) {
+        radar_msgs::msg::RadarReturn ret{};
+        idx += 4u;  /* skip index field */
+        ret.range           = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.doppler_velocity = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.azimuth         = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.elevation       = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.amplitude       = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        radar_scan_msg.returns.push_back(ret);
     }
-
 }
+
+/* ----------------------------------------------------------------------- */
 
 /**
- * @brief Parses a raw sensor packet and populates a RadarTracks message (stub implementation).
+ * @brief Stub for radar track message parsing (not yet implemented).
  *
- * @details Currently generates placeholder tracks with fixed position/velocity values.
- *          Full track parsing is not yet implemented.
- *
- * @param p_buff           Pointer to the raw payload buffer starting at the UID field.
- * @param radar_tracks_msg RadarTracks message to populate.
- * @param complete         Set to true when the last packet of the frame is parsed.
+ * @param p_buff           Unused — track wire format not yet defined.
+ * @param radar_tracks_msg Unused — no data is populated.
+ * @param complete         Unused — always remains false.
  */
-void MessageParser::makeRadarTracksMsg(uint8_t *p_buff, radar_msgs::msg::RadarTracks &radar_tracks_msg, bool& complete) {
-    std::lock_guard<std::mutex> lock(mtx_radar_track);
-    uint32_t idx = 0;
-    tsPacketHeader header = {};
-    std::stringstream ss;
-
-    header.ui32UID = Conversion::le_to_u32(&p_buff[idx]);
-    ss << std::hex << header.ui32UID;
-    frame_id_ = ss.str();
-
-    complete = (header.ui16TPCKN == header.ui16PCKN);
-
-    radar_tracks_msg.header.frame_id = frame_id_;
-    radar_tracks_msg.header.stamp.sec = stamp_tv_sec_;
-    radar_tracks_msg.header.stamp.nanosec = stamp_tv_nsec_;
-
-    RCLCPP_DEBUG(logger_, "radar tracks msg message radar_id: %s", frame_id_.c_str());
-
-    for(int i = 0; i < 3; i++)
-    {
-        radar_msgs::msg::RadarTrack radar_data_msg;
-        radar_data_msg.uuid = tier4_autoware_utils::generateUUID();
-        radar_data_msg.position.x = 1.0;
-        radar_data_msg.position.y = i;
-        radar_data_msg.position.z = i;
-
-        radar_data_msg.velocity.x = 1.0;
-        radar_data_msg.velocity.y = 2.0;
-        radar_data_msg.velocity.z = 3.0;
-
-        radar_data_msg.acceleration.x = 1.0;
-        radar_data_msg.acceleration.y = 2.0;
-        radar_data_msg.acceleration.z = 3.0;
-
-        radar_data_msg.size.x = 1.0;
-        radar_data_msg.size.y = 2.0;
-        radar_data_msg.size.z = 3.0;
-
-        radar_data_msg.classification = 1;
-        radar_data_msg.position_covariance[0] = 1.0;
-
-        radar_tracks_msg.tracks.push_back(radar_data_msg);
-    }
-
+void MessageParser::makeRadarTracksMsg(uint8_t* /*p_buff*/,
+                                        radar_msgs::msg::RadarTracks& /*radar_tracks_msg*/,
+                                        bool& /*complete*/)
+{
+    /* TODO: implement actual track parsing from firmware wire format */
+    RCLCPP_DEBUG(logger_, "makeRadarTracksMsg: not yet implemented");
 }
+
+/* ----------------------------------------------------------------------- */
 
 /**
  * @brief Public entry point for PointCloud2 parsing; delegates to makeRadarPointCloud2Msg().
  *
- * @param p_buff          Pointer to the raw payload buffer.
- * @param radar_cloud_msg PointCloud2 message to assemble.
- * @param complete        Set to true when the complete frame has been parsed.
+ * @param p_buff   Pointer to the raw payload buffer.
+ * @param cloud_msg PointCloud2 message to assemble.
+ * @param complete Set to true when the complete frame is parsed.
  */
-void MessageParser::parsePointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::PointCloud2& radar_cloud_msg, bool& complete) {
-    makeRadarPointCloud2Msg(p_buff, radar_cloud_msg, complete);
+void MessageParser::parsePointCloud2Msg(uint8_t* p_buff,
+                                         sensor_msgs::msg::PointCloud2& cloud_msg,
+                                         bool& complete)
+{
+    makeRadarPointCloud2Msg(p_buff, cloud_msg, complete);
 }
 
 /**
@@ -347,26 +309,27 @@ void MessageParser::parsePointCloud2Msg(uint8_t *p_buff, sensor_msgs::msg::Point
  *
  * @param p_buff         Pointer to the raw payload buffer.
  * @param radar_scan_msg RadarScan message to assemble.
- * @param complete       Set to true when the complete frame has been parsed.
+ * @param complete       Set to true when the complete frame is parsed.
  */
-void MessageParser::parseRadarScanMsg(uint8_t *p_buff, radar_msgs::msg::RadarScan& radar_scan_msg, bool& complete) {
+void MessageParser::parseRadarScanMsg(uint8_t* p_buff,
+                                       radar_msgs::msg::RadarScan& radar_scan_msg,
+                                       bool& complete)
+{
     makeRadarScanMsg(p_buff, radar_scan_msg, complete);
 }
 
 /**
- * @brief Public entry point for RadarTracks parsing (currently a no-op).
- *
- * @details Returns immediately; full track parsing is not yet implemented.
+ * @brief Public entry point for RadarTracks parsing (stub — delegates to makeRadarTracksMsg()).
  *
  * @param p_buff           Pointer to the raw payload buffer.
- * @param radar_tracks_msg RadarTracks message (not modified in current implementation).
+ * @param radar_tracks_msg RadarTracks message (not populated in current implementation).
  * @param complete         Completion flag (not set in current implementation).
  */
-void MessageParser::parseRadarTrackMsg(uint8_t *p_buff, radar_msgs::msg::RadarTracks& radar_tracks_msg, bool& complete) {
-    // To Do
-    return;
+void MessageParser::parseRadarTrackMsg(uint8_t* p_buff,
+                                        radar_msgs::msg::RadarTracks& radar_tracks_msg,
+                                        bool& complete)
+{
     makeRadarTracksMsg(p_buff, radar_tracks_msg, complete);
 }
 
-
-}
+} // namespace au_4d_radar

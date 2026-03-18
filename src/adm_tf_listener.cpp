@@ -3,9 +3,9 @@
  * @author Antonio Ko(antonioko@au-sensor.com)
  * @brief TF Listener Processing
  * @version 1.1
- * @date 2025-5-19
+ * @date 2026-03-19
  *
- * @copyright Copyright AU (c) 2025
+ * @copyright Copyright AU (c) 2026
  *
  */
 
@@ -33,11 +33,11 @@ AdmTFListener::AdmTFListener(device_au_radar_node* node): radar_node_(node) {
 }
 
 /**
- * @brief Timer callback that queries TF2 for each known radar frame and updates YAML config.
+ * @brief Timer callback: queries TF2 for each radar frame and updates YAML pose data.
  *
- * @details Iterates over predefined radar frame names (RADAR_FRONT, etc.), skips frames that
- *          are not yet available, and calls YamlParser::setRadarInfo() when the transform
- *          values have changed since the last poll.
+ * @details Iterates over predefined radar frame names (e.g. RADAR_FRONT), skips frames
+ *          not yet available, and calls YamlParser::setRadarInfo() only when the
+ *          transform values differ from those already stored.
  */
 void AdmTFListener::lookupTransform() {
     geometry_msgs::msg::TransformStamped transform;
@@ -99,10 +99,10 @@ void AdmTFListener::lookupTransform() {
 }
 
 /**
- * @brief Converts a TF2 transform's quaternion rotation to roll, pitch, yaw (radians).
+ * @brief Converts a transform's quaternion to roll, pitch, yaw (radians).
  *
- * @param transform Transform stamped message containing the quaternion to convert.
- * @return std::tuple<double, double, double> containing (roll, pitch, yaw) in radians.
+ * @param transform TransformStamped containing the quaternion to convert.
+ * @return std::tuple<double, double, double> of (roll, pitch, yaw) in radians.
  */
 std::tuple<double, double, double> AdmTFListener::TransformToRPY(const geometry_msgs::msg::TransformStamped& transform) {
     double qx = transform.transform.rotation.x;

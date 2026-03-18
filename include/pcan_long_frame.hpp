@@ -1,3 +1,14 @@
+/**
+ * @file    pcan_long_frame.hpp
+ * @author  AU
+ * @date    2026.03
+ * @brief   long CAN Frame Handler (PC side)
+ *
+ * @details
+ * long frame CAN ID map :
+ *   PC  -> S32: tx_base_id + dev_id  (ex: 0x500 + dev)
+ *   S32 -> PC : rx_base_id + dev_id  (ex: 0x550 + dev)
+ */
 #pragma once
 
 #include <algorithm>
@@ -12,7 +23,8 @@ struct PcanLongFrameConfig
     uint16_t tx_base_id = 0x500u; /* PC -> S32 long */
     uint16_t rx_base_id = 0x550u; /* S32 -> PC long */
     uint8_t device_count = 4u;
-    size_t rx_buf_size = 16u * 1024u;
+    size_t rx_buf_size = 64u * 1024u;
+    bool quiet = false;
 };
 
 class PcanLongFrame

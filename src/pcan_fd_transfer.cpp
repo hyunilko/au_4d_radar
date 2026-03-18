@@ -1,11 +1,15 @@
 /**
  * @file pcan_fd_transfer.cpp
  * @author antonioko@au-sensor.com
- * @brief Pure CAN-FD transport layer implementation using the PEAK PCAN USB adapter.
+ * @brief PCAN FD transport layer — hardware I/O, frame routing and callback wrappers.
  * @version 1.0
- * @date 2026-03-18
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
+ *
+ * @details Owns the PCAN FD channel and the PcanShortFrame / PcanLongFrame objects.
+ *          Exposes poll_rx() for frame-driven dispatch, plus send helpers and
+ *          callback registration wrappers forwarded to the owned sub-objects.
  */
 
 #include <cstring>
@@ -17,23 +21,23 @@
 #include "pcan_fd_transfer.hpp"
 
 /**
- * @brief Constructs a PcanFdTransfer instance storing transport and frame configs.
+ * @brief Constructs a PcanFdTransfer and initialises the owned frame objects.
  *
- * @param cfg      PCAN hardware configuration (handle, bitrate, BRS flag).
- * @param short_cfg Short-frame CAN ID base addresses and device count.
- * @param long_cfg  Long-frame CAN ID base addresses, device count and RX buffer size.
+ * @details Creates PcanShortFrame and PcanLongFrame instances using the
+ *          short_frame and long_frame sub-configs embedded in @p cfg.
+ *
+ * @param cfg Unified configuration holding PCAN hardware settings and both
+ *            short-frame and long-frame sub-configs.
  */
-PcanFdTransfer::PcanFdTransfer(const Config& cfg,
-                               const PcanShortFrameConfig& short_cfg,
-                               const PcanLongFrameConfig& long_cfg)
+PcanFdTransfer::PcanFdTransfer(const Config& cfg)
     : cfg_(cfg)
-    , short_cfg_(short_cfg)
-    , long_cfg_(long_cfg)
 {
+    short_frame_ = std::make_unique<PcanShortFrame>(*this, cfg_.short_frame);
+    long_frame_  = std::make_unique<PcanLongFrame>(*this,  cfg_.long_frame);
 }
 
 /**
- * @brief Destructor. Shuts down the CAN interface if still initialised.
+ * @brief Destructor. Calls shutdown() to release the PCAN channel.
  */
 PcanFdTransfer::~PcanFdTransfer()
 {
@@ -41,20 +45,21 @@ PcanFdTransfer::~PcanFdTransfer()
 }
 
 /**
- * @brief Logs a human-readable PCAN error message.
+ * @brief Logs a human-readable PCAN error string via RCLCPP_ERROR.
  *
- * @param tag Prefix string identifying the call site.
- * @param st  PCAN status code to translate.
+ * @param tag Prefix label identifying the call site.
+ * @param st  PCAN status code to translate via CAN_GetErrorText().
  */
 void PcanFdTransfer::print_pcan_err(const char* tag, TPCANStatus st)
 {
     char err[256] = {0};
     CAN_GetErrorText(st, 0, err);
-    RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransfer"), "%s: %s (0x%X)", tag, err, static_cast<unsigned>(st));
+    RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransfer"),
+                 "%s: %s (0x%X)", tag, err, static_cast<unsigned>(st));
 }
 
 /**
- * @brief Initialises the PCAN FD channel via CAN_InitializeFD().
+ * @brief Opens the PCAN FD channel via CAN_InitializeFD().
  *
  * @return true  if the channel was opened successfully (or was already open).
  * @return false if CAN_InitializeFD() returned an error.
@@ -66,7 +71,8 @@ bool PcanFdTransfer::init(void)
     }
 
     std::lock_guard<std::mutex> lk(io_mtx_);
-    const TPCANStatus st = CAN_InitializeFD(cfg_.handle, const_cast<TPCANBitrateFD>(cfg_.bitrate_fd));
+    const TPCANStatus st =
+        CAN_InitializeFD(cfg_.handle, const_cast<TPCANBitrateFD>(cfg_.bitrate_fd));
     if (st != PCAN_ERROR_OK) {
         print_pcan_err("CAN_InitializeFD failed", st);
         return false;
@@ -74,23 +80,23 @@ bool PcanFdTransfer::init(void)
 
     initialized_ = true;
 
-    RCLCPP_DEBUG(
-        rclcpp::get_logger("PcanFdTransfer"),
-        "PCAN init OK. short(dev=%u tx=0x%03X rx=0x%03X) long(dev=%u tx=0x%03X rx=0x%03X)",
-        short_cfg_.device_count,
-        short_cfg_.tx_base_id,
-        short_cfg_.rx_base_id,
-        long_cfg_.device_count,
-        long_cfg_.tx_base_id,
-        long_cfg_.rx_base_id);
+    if (!cfg_.long_frame.quiet) {
+        RCLCPP_INFO(
+            rclcpp::get_logger("PcanFdTransfer"),
+            "PCAN init OK. dev=%u short_tx=0x%03X short_rx=0x%03X "
+            "long_tx=0x%03X long_rx=0x%03X",
+            cfg_.long_frame.device_count,
+            cfg_.short_frame.tx_base_id,
+            cfg_.short_frame.rx_base_id,
+            cfg_.long_frame.tx_base_id,
+            cfg_.long_frame.rx_base_id);
+    }
 
     return true;
 }
 
 /**
- * @brief Releases the PCAN FD channel via CAN_Uninitialize().
- *
- * @details Has no effect if the channel was not initialised.
+ * @brief Releases the PCAN FD channel via CAN_Uninitialize(). No-op if not initialised.
  */
 void PcanFdTransfer::shutdown(void)
 {
@@ -104,10 +110,10 @@ void PcanFdTransfer::shutdown(void)
 }
 
 /**
- * @brief Converts a payload byte length to the corresponding CAN-FD DLC code.
+ * @brief Maps a payload byte length to the corresponding CAN-FD DLC code.
  *
  * @param len Payload length in bytes (0–64).
- * @return DLC code (0–15) as defined by the CAN-FD standard.
+ * @return DLC code (0–15).
  */
 uint8_t PcanFdTransfer::len_to_dlc(uint8_t len)
 {
@@ -122,28 +128,26 @@ uint8_t PcanFdTransfer::len_to_dlc(uint8_t len)
 }
 
 /**
- * @brief Converts a CAN-FD DLC code to the corresponding payload byte length.
+ * @brief Maps a CAN-FD DLC code to the corresponding payload byte length.
  *
  * @param dlc DLC code (0–15).
- * @return Payload length in bytes, or 0 for an out-of-range DLC.
+ * @return Payload length in bytes, or 0 for an invalid DLC.
  */
 uint8_t PcanFdTransfer::dlc_to_len(uint8_t dlc)
 {
     static const uint8_t map[16] = {
         0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 12u, 16u, 20u, 24u, 32u, 48u, 64u
     };
-
     return (dlc < 16u) ? map[dlc] : 0u;
 }
 
 /**
  * @brief Sends a CAN-FD frame with a variable-length payload (up to 64 bytes).
  *
- * @param can_id Standard CAN ID for the outgoing frame.
- * @param data   Pointer to the payload bytes.
- * @param length Payload length in bytes (must be ≤ 64).
- * @return true  on success.
- * @return false if not initialised, data is null, length exceeds 64, or CAN_WriteFD fails.
+ * @param can_id Standard CAN ID.
+ * @param data   Payload bytes.
+ * @param length Payload length (must be ≤ 64).
+ * @return true on success, false on invalid arguments or send failure.
  */
 bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t length)
 {
@@ -152,12 +156,11 @@ bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t len
     }
 
     TPCANMsgFD msg{};
-    msg.ID = can_id;
+    msg.ID      = can_id;
     msg.MSGTYPE = PCAN_MESSAGE_STANDARD | PCAN_MESSAGE_FD;
     if (cfg_.brs_on) {
         msg.MSGTYPE |= PCAN_MESSAGE_BRS;
     }
-
     msg.DLC = len_to_dlc(length);
     std::memcpy(msg.DATA, data, length);
 
@@ -167,21 +170,20 @@ bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t len
         if (st == PCAN_ERROR_OK) {
             return true;
         }
-
-        print_pcan_err("CAN_WriteFD send_data", st);
+        if (!cfg_.long_frame.quiet) {
+            print_pcan_err("CAN_WriteFD send_data", st);
+        }
         usleep(1000);
     }
-
     return false;
 }
 
 /**
- * @brief Sends a fixed 64-byte CAN-FD frame (DLC=15).
+ * @brief Sends a fixed 64-byte CAN-FD frame (DLC = 15).
  *
- * @param can_id  Standard CAN ID for the outgoing frame.
+ * @param can_id  Standard CAN ID.
  * @param data64  Pointer to exactly 64 bytes of payload.
- * @return true   on success.
- * @return false  if not initialised, data64 is null, or CAN_WriteFD fails.
+ * @return true on success, false on invalid arguments or send failure.
  */
 bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
 {
@@ -190,12 +192,11 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
     }
 
     TPCANMsgFD msg{};
-    msg.ID = can_id;
+    msg.ID      = can_id;
     msg.MSGTYPE = PCAN_MESSAGE_STANDARD | PCAN_MESSAGE_FD;
     if (cfg_.brs_on) {
         msg.MSGTYPE |= PCAN_MESSAGE_BRS;
     }
-
     msg.DLC = 15u;
     std::memcpy(msg.DATA, data64, 64u);
 
@@ -205,104 +206,136 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
         if (st == PCAN_ERROR_OK) {
             return true;
         }
-
-        print_pcan_err("CAN_WriteFD send_frame64", st);
+        if (!cfg_.long_frame.quiet) {
+            print_pcan_err("CAN_WriteFD send_frame64", st);
+        }
         usleep(1000);
     }
-
     return false;
 }
 
 /**
- * @brief Sends a large application payload using the CustomTP long-frame protocol.
+ * @brief Drains the hardware RX queue and dispatches each frame to the appropriate handler.
  *
- * @details Internally creates a transient PcanLongFrame instance to split the payload
- *          into 64-byte CAN-FD chunks and transmit them to the target device.
- *
- * @param dev_id      Target device index (0 … device_count-1).
- * @param msg_id      Application message identifier placed in the App-PDU header.
- * @param payload     Pointer to the application payload bytes.
- * @param payload_len Length of the payload in bytes.
- * @return true  if all chunks were transmitted successfully.
- * @return false on any transmission error or invalid arguments.
+ * @details Calls CAN_ReadFD() in a loop until the queue is empty (PCAN_ERROR_QRCVEMPTY).
+ *          Each data frame is offered to short_frame_ first, then to long_frame_.
+ *          Status frames and unrecognised CAN IDs are logged when quiet mode is off.
  */
-bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
+void PcanFdTransfer::poll_rx(void)
 {
-    PcanLongFrame long_frame(*this, long_cfg_);
-    return long_frame.send_long_payload(dev_id, msg_id, payload, payload_len);
-}
-
-/**
- * @brief Sends a short command frame with an optional data payload.
- *
- * @details Internally creates a transient PcanShortFrame instance to format and
- *          transmit a CMD(4B) + UNIQ_ID(4B) + payload frame to the target device.
- *
- * @param dev_id      Target device index (0 … device_count-1).
- * @param cmd         Short command identifier.
- * @param uniq_id     Unique transaction ID embedded in the frame (big-endian).
- * @param payload     Pointer to optional extra payload bytes (may be nullptr).
- * @param payload_len Length of the extra payload (0–56 bytes).
- * @return true  on success.
- * @return false on any transmission error or invalid arguments.
- */
-bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id,
-                                        ShortCanCmd cmd,
-                                        uint32_t uniq_id,
-                                        const uint8_t* payload,
-                                        uint8_t payload_len)
-{
-    PcanShortFrame short_frame(*this, short_cfg_);
-    return short_frame.send_short_command_with_data(dev_id, cmd, uniq_id, payload, payload_len);
-}
-
-/**
- * @brief Reads one CAN-FD frame from the hardware receive queue (non-blocking).
- *
- * @param[out] out Populated with the received frame data on success.
- * @return ReadStatus::Ok     if a normal data frame was received.
- * @return ReadStatus::Empty  if the hardware queue contained no frames.
- * @return ReadStatus::Status if a PCAN status/error frame was received.
- * @return ReadStatus::Error  on a hardware or API error.
- */
-PcanFdTransfer::ReadStatus PcanFdTransfer::read_frame(RxFrame& out)
-{
-    out = RxFrame{};
-
     if (!initialized_) {
-        return ReadStatus::Error;
+        return;
     }
 
-    TPCANMsgFD rx{};
-    TPCANTimestampFD ts = 0;
+    while (true) {
+        TPCANMsgFD    rx{};
+        TPCANTimestampFD ts = 0;
 
-    TPCANStatus st;
-    {
-        std::lock_guard<std::mutex> lk(io_mtx_);
-        st = CAN_ReadFD(cfg_.handle, &rx, &ts);
+        TPCANStatus st;
+        {
+            std::lock_guard<std::mutex> lk(io_mtx_);
+            st = CAN_ReadFD(cfg_.handle, &rx, &ts);
+        }
+
+        if (st == PCAN_ERROR_QRCVEMPTY) {
+            break;
+        }
+
+        if (st != PCAN_ERROR_OK) {
+            if (!cfg_.long_frame.quiet) {
+                print_pcan_err("CAN_ReadFD", st);
+            }
+            continue;
+        }
+
+        if ((rx.MSGTYPE & PCAN_MESSAGE_STATUS) != 0u) {
+            if (!cfg_.long_frame.quiet) {
+                const uint32_t ec = Conversion::be_to_u32(rx.DATA);
+                print_pcan_err("[STATUS]", static_cast<TPCANStatus>(ec));
+            }
+            continue;
+        }
+
+        const uint8_t  data_len = dlc_to_len(rx.DLC);
+        const uint32_t can_id   = static_cast<uint32_t>(rx.ID);
+
+        if (short_frame_ && short_frame_->handle_short_can_frame(can_id, rx.DATA, data_len)) {
+            continue;
+        }
+
+        if (long_frame_ && long_frame_->handle_long_can_frame(can_id, rx.DATA, data_len)) {
+            continue;
+        }
+
+        if (!cfg_.long_frame.quiet) {
+            RCLCPP_WARN(rclcpp::get_logger("PcanFdTransfer"),
+                        "Unknown CAN ID: 0x%03X len=%u", can_id, data_len);
+        }
     }
+}
 
-    if (st == PCAN_ERROR_QRCVEMPTY) {
-        return ReadStatus::Empty;
+/* ---------- wrappers forwarded from sub-objects -------------------------- */
+
+/**
+ * @brief Registers the long-frame RX callback on the owned PcanLongFrame instance.
+ *
+ * @param cb Callback invoked when a complete App-PDU has been reassembled.
+ *           Pass an empty std::function to deregister.
+ */
+void PcanFdTransfer::set_long_rx_callback(LongRxCallback cb)
+{
+    if (long_frame_) {
+        long_frame_->set_rx_callback(std::move(cb));
     }
+}
 
-    if (st != PCAN_ERROR_OK) {
-        print_pcan_err("CAN_ReadFD", st);
-        out.status = st;
-        return ReadStatus::Error;
+/**
+ * @brief Registers the short-frame RX callback on the owned PcanShortFrame instance.
+ *
+ * @param cb Callback invoked when a short command frame has been parsed.
+ *           Pass an empty std::function to deregister.
+ */
+void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
+{
+    if (short_frame_) {
+        short_frame_->set_rx_callback(std::move(cb));
     }
+}
 
-    if ((rx.MSGTYPE & PCAN_MESSAGE_STATUS) != 0u) {
-        out.is_status = true;
-        out.status = static_cast<TPCANStatus>(Conversion::be_to_u32(rx.DATA));
+/**
+ * @brief Sends a large application payload via the CustomTP long-frame protocol.
+ *
+ * @param dev_id      Target device index.
+ * @param msg_id      Application message ID placed in the App-PDU header.
+ * @param payload     Pointer to payload bytes.
+ * @param payload_len Payload length in bytes.
+ * @return true on success, false if long_frame_ is null or transmission fails.
+ */
+bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id,
+                                   const uint8_t* payload, int payload_len)
+{
+    return (long_frame_ != nullptr)
+        ? long_frame_->send_long_payload(dev_id, msg_id, payload, payload_len)
+        : false;
+}
 
-        print_pcan_err("[STATUS]", out.status);
-        return ReadStatus::Status;
-    }
-
-    out.can_id = static_cast<uint32_t>(rx.ID);
-    out.data_len = dlc_to_len(rx.DLC);
-    std::memcpy(out.data, rx.DATA, out.data_len);
-
-    return ReadStatus::Ok;
+/**
+ * @brief Sends a short command frame with optional payload via the short-frame protocol.
+ *
+ * @param dev_id      Target device index.
+ * @param cmd         Command identifier.
+ * @param uniq_id     Unique transaction ID embedded in the frame.
+ * @param payload     Optional extra payload bytes (may be nullptr).
+ * @param payload_len Length of extra payload (0–56 bytes).
+ * @return true on success, false if short_frame_ is null or transmission fails.
+ */
+bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id, ShortCanCmd cmd,
+                                         uint32_t uniq_id,
+                                         const uint8_t* payload,
+                                         uint8_t payload_len)
+{
+    return (short_frame_ != nullptr)
+        ? short_frame_->send_short_command_with_data(dev_id, cmd, uniq_id,
+                                                      payload, payload_len)
+        : false;
 }

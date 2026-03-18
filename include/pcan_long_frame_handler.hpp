@@ -1,85 +1,115 @@
 #pragma once
 
-#include <condition_variable>
-#include <string>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
-#include <thread>
-#include <queue>
-#include <mutex>
-#include <unordered_map>
-#include <vector>
 #include <deque>
 #include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
-#include "message_parse.hpp"
-#include "pcan_long_frame.hpp"
+#include "message_parse.hpp"   /* MessageParser, HeaderType */
 
 class PcanFdTransfer;
 
 namespace au_4d_radar
 {
+    class device_au_radar_node;
 
-class device_au_radar_node;
+    class PcanLongFrameHandler
+    {
+    public:
+        explicit PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can);
+        ~PcanLongFrameHandler();
 
-class PcanLongFrameHandler
-{
-public:
-    explicit PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can);
-    ~PcanLongFrameHandler();
+        void start();
+        void stop();
 
-    void start();
-    void stop();
+        int sendMessages(uint8_t device_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
+        std::string getRadarName(uint32_t radar_id);
 
-    bool handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
+    private:
+        /* ----- lifecycle ------------------------------------------------- */
+        bool initialize();
 
-    int sendMessages(uint8_t device_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
-    std::string getRadarName(uint32_t radar_id);
+        /* ----- thread entry points --------------------------------------- */
+        void receiveThread();
+        void processThread();
+        void clientThread(uint32_t unique_id);
 
-private:
-    bool initialize();
-    void receiveMessagesTwoQueues();
-    void processMessages();
-    void processClientMessages(uint32_t unique_id);
-    void processPerFrameForAllSensor();
-    void handleRadarScanMessage(std::vector<uint8_t>& buffer,
-                                radar_msgs::msg::RadarScan& radar_scan_msg,
-                                sensor_msgs::msg::PointCloud2& radar_cloud_msg,
-                                std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer);
-    void assemblePointCloud(std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer,
-                            const sensor_msgs::msg::PointCloud2& radar_cloud_msg,
-                            sensor_msgs::msg::PointCloud2& multiple_cloud_messages);
-    void mergePointCloud(const sensor_msgs::msg::PointCloud2& multiple_cloud_messages,
-                         sensor_msgs::msg::PointCloud2& radar_cloud_msgs);
-    bool isNewTimeSync(uint32_t time_sync_cloud);
-    void handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg);
+        /* ----- per-frame handlers (single responsibility) --------------- */
+        void handleScanMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarScan& radar_scan_msg);
 
-private:
-    device_au_radar_node* radar_node_;
-    MessageParser message_parser_;
-    std::atomic<bool> receive_running;
-    std::atomic<bool> process_running;
-    std::atomic<bool> process_runnings;
-    bool point_cloud2_setting_{false};
-    uint32_t message_number_{0};
-    std::thread receive_thread_;
-    std::thread process_thread_;
-    std::queue<std::vector<uint8_t>> message_queue_;
-    std::mutex queue_mutex_;
-    std::condition_variable queue_cv_;
-    std::unordered_map<uint32_t, std::thread> client_threads_;
-    std::mutex client_threads_mutex_;
-    std::unordered_map<uint32_t, std::queue<std::vector<uint8_t>>> client_message_queues_;
-    std::mutex client_queue_mutex_;
-    std::unordered_map<uint32_t, std::condition_variable> client_queue_cvs_;
-    sensor_msgs::msg::PointCloud2 radar_cloud_msgs;
-    std::mutex publish_mutex_;
-    std::mutex parse_mutex_;
-    uint8_t time_sync_pre_cloud_{0};
-    static constexpr size_t mTsPacketHeaderSize = 36UL;
+        void handlePointCloud2Message(
+            std::vector<uint8_t>& buffer,
+            sensor_msgs::msg::PointCloud2& radar_cloud_msg,
+            std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer);
 
-    PcanFdTransfer& can_;
-    PcanLongFrame long_frame_;
-};
+        /* ----- point-cloud helpers -------------------------------------- */
+        void assemblePointCloud(
+            std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer,
+            const sensor_msgs::msg::PointCloud2& radar_cloud_msg,
+            sensor_msgs::msg::PointCloud2& out);
+
+        void mergePointCloud(const sensor_msgs::msg::PointCloud2& src, sensor_msgs::msg::PointCloud2& dst);
+
+        bool isNewTimeSync(uint32_t time_sync_cloud);
+
+        /* ----- track handler ------------------------------------------- */
+        void handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg);
+
+    private:
+        /* Constants */
+        static constexpr size_t   kMaxQueueSize     = 1000u;
+        static constexpr size_t   kTsPacketHdrSize  = 36u;
+        static constexpr size_t   kBufferSize        = 5000u;
+        static constexpr uint32_t kMsgTypeOffset     = 4u;
+
+        /* Back-pointer to the owning ROS2 node */
+        device_au_radar_node* radar_node_;
+
+        /* CAN transport (shared with the node) */
+        PcanFdTransfer& can_;
+
+        /* Per-instance message parser */
+        MessageParser message_parser_;
+
+        /* --- thread-lifecycle atomics ------------------------------------ */
+        std::atomic<bool> rx_thread_running_{false};
+        std::atomic<bool> process_thread_running_{false};
+        std::atomic<bool> client_threads_running_{false};
+
+        /* --- configuration cached from YamlParser ----------------------- */
+        bool     point_cloud2_setting_{false};
+        uint32_t message_number_{0u};
+
+        /* --- receive → process pipeline --------------------------------- */
+        std::thread receive_thread_;
+        std::thread process_thread_;
+
+        std::queue<std::vector<uint8_t>> message_queue_;
+        std::mutex               queue_mutex_;
+        std::condition_variable  queue_cv_;
+
+        /* --- per-device client threads ---------------------------------- */
+        /* client_queue_mutex_ guards BOTH client_message_queues_ AND
+         * client_queue_cvs_, so that each CV/queue pair uses the same lock. */
+        std::unordered_map<uint32_t, std::thread> client_threads_;
+        std::mutex client_threads_mutex_;
+
+        std::unordered_map<uint32_t, std::queue<std::vector<uint8_t>>> client_message_queues_;
+        std::unordered_map<uint32_t, std::condition_variable>          client_queue_cvs_;
+        std::mutex client_queue_mutex_;
+
+        /* --- publish-side shared state ---------------------------------- */
+        sensor_msgs::msg::PointCloud2 radar_cloud_msgs_;
+        std::mutex publish_mutex_;
+        std::mutex parse_mutex_;
+        uint8_t    time_sync_pre_cloud_{0u};
+    };
 
 } // namespace au_4d_radar

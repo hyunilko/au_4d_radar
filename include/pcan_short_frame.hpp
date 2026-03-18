@@ -6,11 +6,11 @@
  *
  * @details
  * Single CAN FD frame command/response processor.
- * Wire format (S32R45 app_can.c 기준):
+ * Wire format :
  *   TX (PC -> S32): [CMD(4B, BE)][DATA ...]
  *   RX (S32 -> PC): [CMD(4B, BE)][UNIQ_ID(4B, BE)][EXTRA_DATA ...]
  *
- * Short frame CAN ID map (app_can.c 기준):
+ * Short frame CAN ID map :
  *   PC  -> S32: tx_base_id + dev_id  (ex: 0x700 + dev)
  *   S32 -> PC : rx_base_id + dev_id  (ex: 0x750 + dev)
  */
@@ -40,6 +40,7 @@ struct PcanShortFrameConfig
     uint16_t tx_base_id = 0x700u; /* PC -> S32 */
     uint16_t rx_base_id = 0x750u; /* S32 -> PC */
     uint8_t device_count = 4u;
+    bool quiet = false;
 };
 
 class PcanShortFrame

@@ -1,15 +1,16 @@
 /**
  * @file pcan_short_frame.cpp
  * @author antonioko@au-sensor.com
- * @brief Single-frame CAN-FD command/response handler for the short-frame protocol.
+ * @brief Single-frame CAN-FD command/response handler (short-frame protocol).
  * @version 1.0
- * @date 2026-03-18
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  *
- * @details Implements the short-frame wire format:
- *          CMD(4B BE) + UNIQ_ID(4B BE) + optional payload (up to 56 bytes).
- *          Frames are sent and received within a single 64-byte CAN-FD message.
+ * @details Wire format — Application Layer:
+ *          Bytes 00–03: Command ID (4 B, big-endian)
+ *          Bytes 04–07: Unique ID   (4 B, big-endian)
+ *          Bytes 08+  : Payload     (up to 56 bytes)
  */
 
 #include "pcan_short_frame.hpp"
@@ -27,10 +28,10 @@ static constexpr uint8_t UNIQ_ID_LEN      = 4u;   /* ACK unique ID */
 static constexpr uint8_t SHORT_MAX_BYTES  = 56u;  /* 64B - CMD(4B) - unique ID(4B) */
 
 /**
- * @brief Constructs a PcanShortFrame instance.
+ * @brief Constructs a PcanShortFrame storing the transport reference and config.
  *
- * @param pcan Reference to the underlying transport layer used for sending frames.
- * @param cfg  Short-frame configuration (TX/RX base CAN IDs and device count).
+ * @param pcan Reference to the transport layer used for sending frames.
+ * @param cfg  Short-frame configuration (TX/RX base IDs, device count).
  */
 PcanShortFrame::PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg)
     : pcan_(pcan)
@@ -41,9 +42,7 @@ PcanShortFrame::PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg)
 /**
  * @brief Registers the callback invoked when a short frame is received.
  *
- * @param cb Callback with signature
- *           void(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id,
- *                const std::vector<uint8_t>& payload).
+ * @param cb Callback: void(dev_id, cmd, uniq_id, payload).
  *           Pass an empty std::function to deregister.
  */
 void PcanShortFrame::set_rx_callback(ShortFrameRxCallback cb)
@@ -53,11 +52,11 @@ void PcanShortFrame::set_rx_callback(ShortFrameRxCallback cb)
 }
 
 /**
- * @brief Sends a short command frame without any additional payload.
+ * @brief Sends a short command frame with no additional payload.
  *
- * @param dev_id  Target device index (0 … device_count-1).
- * @param uniq_id Unique transaction ID (big-endian in wire format).
- * @param cmd     Command identifier to send.
+ * @param dev_id  Target device index.
+ * @param uniq_id Unique transaction ID.
+ * @param cmd     Command identifier.
  * @return true on success, false on error.
  */
 bool PcanShortFrame::send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd)
@@ -68,15 +67,14 @@ bool PcanShortFrame::send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortC
 /**
  * @brief Sends a short command frame with an optional extra payload.
  *
- * @details Builds a frame: CMD(4B BE) + UNIQ_ID(4B BE) + payload, then calls
- *          PcanFdTransfer::send_data(). Payload is silently truncated to 56 bytes
- *          if it exceeds that limit.
+ * @details Builds CMD(4B BE) + UNIQ_ID(4B BE) + payload and calls send_data().
+ *          Payload is silently truncated to 56 bytes if it exceeds that limit.
  *
  * @param dev_id      Target device index (0 … device_count-1).
  * @param cmd         Command identifier.
  * @param uniq_id     Unique transaction ID.
- * @param payload     Pointer to extra payload bytes (may be nullptr if payload_len == 0).
- * @param payload_len Length of extra payload in bytes (max 56).
+ * @param payload     Extra payload bytes (nullptr if payload_len == 0).
+ * @param payload_len Extra payload length in bytes (max 56).
  * @return true on success, false on error.
  */
 bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
@@ -110,7 +108,7 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
     const uint8_t total_len = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN + payload_len);
 
     const bool ok = pcan_.send_data(can_id, frame, total_len);
-    if (!ok) {
+    if (!ok && !cfg_.quiet) {
         RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
                      "send_short_command_with_data: send_data failed (dev=%u, cmd=0x%08X)",
                      dev_id, static_cast<uint32_t>(cmd));
@@ -120,12 +118,11 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
 }
 
 /**
- * @brief Checks whether a CAN ID falls in the configured short-frame RX range.
+ * @brief Checks whether a CAN ID belongs to the short-frame RX range.
  *
- * @param can_id      Received CAN ID to test.
- * @param dev_id_out  Set to the computed device index when the function returns true.
- * @return true  if can_id maps to a valid device index.
- * @return false otherwise.
+ * @param can_id      Received CAN ID.
+ * @param dev_id_out  Set to the device index when the function returns true.
+ * @return true if can_id maps to a valid device, false otherwise.
  */
 bool PcanShortFrame::is_short_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const
 {
@@ -143,13 +140,12 @@ bool PcanShortFrame::is_short_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) co
 }
 
 /**
- * @brief Dispatches an incoming CAN frame to the short-frame processor if its ID matches.
+ * @brief Dispatches a CAN frame to the short-frame processor if its ID matches.
  *
  * @param can_id   CAN ID of the received frame.
- * @param data     Pointer to the frame payload bytes.
- * @param data_len Length of the frame payload.
- * @return true  if the CAN ID was handled by this instance.
- * @return false if the CAN ID does not belong to the short-frame RX range.
+ * @param data     Frame payload bytes.
+ * @param data_len Payload length.
+ * @return true if handled, false if the CAN ID is out of range.
  */
 bool PcanShortFrame::handle_short_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
 {
@@ -165,14 +161,11 @@ bool PcanShortFrame::handle_short_can_frame(uint32_t can_id, const uint8_t* data
 /**
  * @brief Parses a raw short-frame payload and invokes the registered RX callback.
  *
- * @details Wire layout (Application Layer):
- *          - Bytes 00–03: Command ID (4 bytes, big-endian)
- *          - Bytes 04–07: Unique ID   (4 bytes, big-endian)
- *          - Bytes 08+  : Payload     (variable, up to 56 bytes)
+ * @details Extracts CMD(4B BE), UNIQ_ID(4B BE), and optional payload, then calls rx_cb_.
  *
  * @param dev_id   Device index derived from the received CAN ID.
- * @param data     Pointer to the raw frame payload bytes.
- * @param data_len Payload length in bytes (must be ≥ 4 to carry at least the CMD field).
+ * @param data     Raw frame payload bytes.
+ * @param data_len Payload length (must be ≥ 4 to carry the CMD field).
  */
 void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len)
 {
@@ -199,6 +192,11 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
     const uint8_t payload_len = (data_len > payload_offset) ? static_cast<uint8_t>(data_len - payload_offset) : 0u;
     const std::vector<uint8_t> payload(data + payload_offset, data + payload_offset + payload_len);
 
+    if (!cfg_.quiet) {
+       // RCLCPP_INFO(rclcpp::get_logger("PcanShortFrame"),
+       //             "[Short RX] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%u",
+       //             dev_id, cmd_raw, uniq_id, payload_len);
+    }
 
     std::lock_guard<std::mutex> lk(mtx_);
     if (rx_cb_) {

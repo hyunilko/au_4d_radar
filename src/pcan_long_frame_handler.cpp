@@ -1,9 +1,9 @@
 /**
  * @file pcan_long_frame_handler.cpp
- * @author Antonio Ko(antonioko@au-sensor.com)
- * @brief Implementation of the pcan_long_frame_handler class for processing incoming radar data.
+ * @author Antonio Ko (antonioko@au-sensor.com)
+ * @brief Long CAN frame receive/dispatch handler.
  * @version 1.0
- * @date 2026-03-09
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  *
@@ -17,213 +17,241 @@
 #include "util/conversion.hpp"
 #include "util/yamlParser.hpp"
 #include "pcan_long_frame_handler.hpp"
-
 #include "pcan_fd_transfer.hpp"
 
-
-#define BUFFER_SIZE     2048
-#define MSG_TYPE_OFFSET 4
-const size_t MAX_QUEUE_SIZE = 1000;
-
-enum HeaderType {
-    HEADER_SCAN = 0x5343414e,
-    HEADER_TRACK = 0x54524143,
-    HEADER_MON = 0x4d4f4e49
-};
-
 namespace au_4d_radar {
+
+/* =========================================================================
+ * Construction / destruction
+ * ========================================================================= */
 
 /**
  * @brief Constructs a PcanLongFrameHandler.
  *
- * @param node Pointer to the owning ROS2 radar node (used for publishing and logging).
- * @param can  Reference to the transport layer for sending and receiving CAN frames.
+ * @param node Pointer to the owning radar node (for publishing and logging).
+ * @param can  Reference to the transport layer.
  */
-PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can)
-    : radar_node_(node),
-      message_parser_(node->get_logger()),
-      receive_running(true),
-      process_running(true),
-      process_runnings(true),
-      can_(can),
-      long_frame_(can, can.long_frame_config())
+PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node,
+                                           PcanFdTransfer& can)
+    : radar_node_(node)
+    , can_(can)
+    , message_parser_(node->get_logger())
 {
 }
 
 /**
- * @brief Destructor. Calls stop() to cleanly terminate all worker threads.
+ * @brief Destructor. Calls stop() to cleanly join all worker threads.
  */
 PcanLongFrameHandler::~PcanLongFrameHandler()
 {
     stop();
 }
 
+/* =========================================================================
+ * Public interface
+ * ========================================================================= */
+
 /**
- * @brief Initialises the PCAN interface and starts the receive and process threads.
+ * @brief Initialises the PCAN channel and starts the receive and process threads.
  *
- * @details Calls initialize() to open the CAN channel and install the RX callback,
- *          then spawns the receiveMessagesTwoQueues() and processMessages() threads.
- *          Logs an error and returns without starting threads if initialisation fails.
+ * @details Calls initialize() then, on success, sets all running flags and spawns
+ *          receiveThread() and processThread().
  */
 void PcanLongFrameHandler::start()
 {
-    if (initialize())
-    {
-        receive_thread_ = std::thread(&PcanLongFrameHandler::receiveMessagesTwoQueues, this);
-        process_thread_ = std::thread(&PcanLongFrameHandler::processMessages, this);
+    if (!initialize()) {
+        RCLCPP_ERROR(radar_node_->get_logger(),
+                     "CAN initialization failed — start aborted.");
+        return;
     }
-    else
-    {
-        RCLCPP_ERROR(radar_node_->get_logger(), "CAN initialization failed, start aborted.");
-    }
+
+    rx_thread_running_.store(true);
+    process_thread_running_.store(true);
+    client_threads_running_.store(true);
+
+    receive_thread_ = std::thread(&PcanLongFrameHandler::receiveThread, this);
+    process_thread_ = std::thread(&PcanLongFrameHandler::processThread,  this);
 }
 
 /**
- * @brief Signals all worker threads to stop, joins them, and shuts down the CAN interface.
+ * @brief Signals all threads to exit, joins them, and shuts down the CAN interface.
  */
 void PcanLongFrameHandler::stop()
 {
-    receive_running.store(false);
-    process_running.store(false);
-    process_runnings.store(false);
+    rx_thread_running_.store(false);
+    process_thread_running_.store(false);
+    client_threads_running_.store(false);
 
+    /* Wake the process thread */
     queue_cv_.notify_all();
+
+    /* Wake all client threads — uses client_queue_mutex_ consistently */
     {
-        std::lock_guard<std::mutex> lock(client_threads_mutex_);
-        for (auto& pair : client_queue_cvs_)
-            pair.second.notify_all();
+        std::lock_guard<std::mutex> lk(client_queue_mutex_);
+        for (auto& kv : client_queue_cvs_) {
+            kv.second.notify_all();
+        }
     }
 
-    if (receive_thread_.joinable()) receive_thread_.join();
-    if (process_thread_.joinable()) process_thread_.join();
+    if (receive_thread_.joinable()) { receive_thread_.join(); }
+    if (process_thread_.joinable()) { process_thread_.join(); }
 
     {
-        std::lock_guard<std::mutex> lock(client_threads_mutex_);
-        for (auto& pair : client_threads_)
-            if (pair.second.joinable()) pair.second.join();
-
+        std::lock_guard<std::mutex> lk(client_threads_mutex_);
+        for (auto& kv : client_threads_) {
+            if (kv.second.joinable()) { kv.second.join(); }
+        }
         client_threads_.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(client_queue_mutex_);
         client_queue_cvs_.clear();
     }
 
-    long_frame_.set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
+    can_.set_long_rx_callback(PcanFdTransfer::LongRxCallback{});
     can_.shutdown();
 }
 
 /**
- * @brief Opens the PCAN channel and installs the long-frame RX callback.
+ * @brief Sends an application payload to a radar device via the long-frame transport.
  *
- * @details Reads YAML settings (point-cloud mode, message number), calls
- *          PcanFdTransfer::init(), and registers the lambda that validates
- *          incoming payloads and pushes them onto the shared message queue.
+ * @param device_id   Target device index.
+ * @param msg_id      Application message ID placed in the App-PDU header.
+ * @param payload     Pointer to payload bytes.
+ * @param payload_len Payload length in bytes.
+ * @return payload_len on success, -1 on failure.
+ */
+int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
+                                       const uint8_t* payload, int payload_len)
+{
+    return can_.send_payload(device_id, msg_id, payload, payload_len)
+           ? payload_len
+           : -1;
+}
+
+/**
+ * @brief Returns the human-readable frame ID name for a given radar unique ID.
  *
- * @return true  on successful initialisation.
- * @return false if PCAN init fails.
+ * @param radar_id 32-bit sensor unique identifier.
+ * @return Frame ID string from system_info.yaml, or empty string if not found.
+ */
+std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
+{
+    return YamlParser::getFrameIdName(radar_id);
+}
+
+/* =========================================================================
+ * Private — initialization
+ * ========================================================================= */
+
+/**
+ * @brief Opens the PCAN channel and registers the long-frame RX callback.
+ *
+ * @details Reads YAML settings (point-cloud mode, message number), calls can_.init(),
+ *          and installs the lambda that validates payloads and pushes them onto the
+ *          shared message queue.
+ *
+ * @return true on success, false if PCAN init fails.
  */
 bool PcanLongFrameHandler::initialize()
 {
-    point_cloud2_setting_ = YamlParser::readPointCloud2Setting("POINT_CLOUD2");
-    message_number_       = YamlParser::readMessageNumber("MESSAGE_NUMBER");
+    point_cloud2_setting_ = YamlParser::getPointCloud2Setting();
+    message_number_       = YamlParser::getMessageNumber();
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
-    if (!can_.init())
-    {
+    if (!can_.init()) {
         RCLCPP_ERROR(radar_node_->get_logger(), "PCAN init failed");
         return false;
     }
 
-    long_frame_.set_rx_callback([this](uint8_t dev_id,
-                                 uint32_t frame_id,
-                                 uint32_t frame_count,
-                                 uint32_t msg_id,
-                                 std::vector<uint8_t>&& payload)
-    {
-       (void)dev_id;
-       (void)frame_id;
-       (void)frame_count;
-       (void)msg_id;
-
-        if (payload.size() < mTsPacketHeaderSize || payload.size() >= BUFFER_SIZE)
+    can_.set_long_rx_callback(
+        [this](uint8_t  /*dev_id*/,
+               uint32_t /*frame_id*/,
+               uint32_t /*frame_count*/,
+               uint32_t /*msg_id*/,
+               std::vector<uint8_t>&& payload)
         {
-            RCLCPP_WARN(radar_node_->get_logger(), "Invalid payload size: %zu", payload.size());
-            return;
-        }
-
-        const uint32_t unique_id = Conversion::le_to_u32(&payload[MSG_TYPE_OFFSET]);
-        //RCLCPP_INFO(radar_node_->get_logger(), "dev_id: %d frame_id %08x frame_count %u msg_id %08x unique_id %08x", dev_id, frame_id, frame_count, msg_id, unique_id);
-        if (!YamlParser::checkValidFrameId(unique_id))
-        {
-            RCLCPP_WARN(radar_node_->get_logger(), "unique_id %08x not in system_info.yaml", unique_id);
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(queue_mutex_);
-            if (message_queue_.size() >= MAX_QUEUE_SIZE)
-            {
-                message_queue_.pop();
-                RCLCPP_ERROR(radar_node_->get_logger(), "Message queue full, discard oldest");
+            if (payload.size() < kTsPacketHdrSize || payload.size() >= kBufferSize) {
+                RCLCPP_WARN(radar_node_->get_logger(),
+                            "RX callback: invalid payload size %zu", payload.size());
+                return;
             }
-            message_queue_.push(std::move(payload));
-        }
-        queue_cv_.notify_one();
-    });
+
+            const uint32_t unique_id = Conversion::le_to_u32(&payload[kMsgTypeOffset]);
+
+            if (!YamlParser::checkValidFrameId(unique_id)) {
+                RCLCPP_WARN(radar_node_->get_logger(),
+                            "unique_id 0x%08x not in system_info.yaml", unique_id);
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> lk(queue_mutex_);
+                if (message_queue_.size() >= kMaxQueueSize) {
+                    message_queue_.pop();
+                    RCLCPP_ERROR(radar_node_->get_logger(),
+                                 "Main message queue full — discarding oldest");
+                }
+                message_queue_.push(std::move(payload));
+            }
+            queue_cv_.notify_one();
+        });
 
     return true;
 }
 
+/* =========================================================================
+ * Private — receive thread (CAN polling)
+ * ========================================================================= */
+
 /**
- * @brief Lifecycle thread kept for compatibility; RX is handled by pcanRxDispatchLoop.
+ * @brief RX polling thread — calls can_.poll_rx() in a tight loop.
  *
- * @details The actual CAN receive pump runs in device_au_radar_node::pcanRxDispatchLoop
- *          which calls handle_can_frame() directly. This thread simply sleeps until
- *          receive_running is cleared.
+ * @details poll_rx() drains the hardware queue and dispatches each frame via
+ *          the registered callback, which enqueues payloads for processThread().
  */
-void PcanLongFrameHandler::receiveMessagesTwoQueues()
+void PcanLongFrameHandler::receiveThread()
 {
-    /* RX polling is handled by pcanRxDispatchLoop in device_au_radar_node.
-     * This thread is kept for lifecycle compatibility only. */
-    while (receive_running.load()) {
-        usleep(100000);
+    while (rx_thread_running_.load()) {
+        can_.poll_rx();
+        usleep(1000);
     }
 }
 
+/* =========================================================================
+ * Private — process thread (main queue → per-device dispatch)
+ * ========================================================================= */
+
 /**
- * @brief Dispatches an incoming CAN frame to the owned PcanLongFrame assembler.
+ * @brief Main queue consumer — dequeues reassembled payloads and routes by unique_id.
  *
- * @param can_id   CAN ID of the received frame.
- * @param data     Pointer to the frame payload bytes.
- * @param data_len Length of the frame payload.
- * @return true  if the frame was consumed by the long-frame handler.
- * @return false if the CAN ID does not belong to the long-frame RX range.
+ * @details Reads the unique_id from bytes [kMsgTypeOffset … +4) (little-endian),
+ *          pushes the buffer to the per-device client queue, and spawns a
+ *          clientThread() for that ID on first encounter.
  */
-bool PcanLongFrameHandler::handle_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
+void PcanLongFrameHandler::processThread()
 {
-    return long_frame_.handle_long_can_frame(can_id, data, data_len);
-}
+    std::vector<uint8_t> buffer;
+    buffer.reserve(kBufferSize);
 
-/**
- * @brief Consumer thread that dequeues reassembled payloads and routes them by unique_id.
- *
- * @details For each payload, reads the unique_id from bytes 4–7 (little-endian), pushes
- *          the buffer into the per-client queue, and spawns a dedicated processClientMessages
- *          thread for that unique_id if one is not already running.
- */
-void PcanLongFrameHandler::processMessages() {
-    std::vector<uint8_t> buffer(BUFFER_SIZE);
-    while (process_running.load()) {
-        // std::vector<uint8_t> buffer(BUFFER_SIZE);
+    while (process_thread_running_.load()) {
         {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            queue_cv_.wait(lock, [this] { return !message_queue_.empty() || !process_running.load(); });
+            std::unique_lock<std::mutex> lk(queue_mutex_);
+            queue_cv_.wait(lk, [this] {
+                return !message_queue_.empty() || !process_thread_running_.load();
+            });
 
-            if (!process_running.load()) {
+            if (!process_thread_running_.load()) {
                 break;
             }
 
-            if (message_queue_.front().size() < mTsPacketHeaderSize || message_queue_.front().size() >= BUFFER_SIZE) {
-                RCLCPP_WARN(rclcpp::get_logger("processMessages"), "Invalid message size detected and discarded.");
+            const auto& front = message_queue_.front();
+            if (front.size() < kTsPacketHdrSize || front.size() >= kBufferSize) {
+                RCLCPP_WARN(radar_node_->get_logger(),
+                            "processThread: invalid message size %zu — discarding",
+                            front.size());
                 message_queue_.pop();
                 continue;
             }
@@ -232,54 +260,76 @@ void PcanLongFrameHandler::processMessages() {
             message_queue_.pop();
         }
 
-        uint32_t unique_id = Conversion::le_to_u32(&buffer[MSG_TYPE_OFFSET]);
+        const uint32_t unique_id = Conversion::le_to_u32(&buffer[kMsgTypeOffset]);
 
+        /* Push to per-device queue (guarded by client_queue_mutex_) */
         {
-            std::lock_guard<std::mutex> lock(client_queue_mutex_);
-            if (client_message_queues_[unique_id].size() >= MAX_QUEUE_SIZE) {
-                client_message_queues_[unique_id].pop();
-                RCLCPP_ERROR(rclcpp::get_logger("processMessages"), "Client message queue is full, discarding oldest message");
+            std::lock_guard<std::mutex> lk(client_queue_mutex_);
+            auto& q = client_message_queues_[unique_id];
+            if (q.size() >= kMaxQueueSize) {
+                q.pop();
+                RCLCPP_ERROR(radar_node_->get_logger(),
+                             "Client queue 0x%08x full — discarding oldest", unique_id);
             }
-            client_message_queues_[unique_id].push(buffer);
+            q.push(buffer);
         }
 
+        /* Spawn a client thread on first encounter */
         {
-            std::lock_guard<std::mutex> lock(client_threads_mutex_);
+            std::lock_guard<std::mutex> lk(client_threads_mutex_);
             if (client_threads_.find(unique_id) == client_threads_.end()) {
-                client_queue_cvs_[unique_id];
-                client_threads_[unique_id] = std::thread(&PcanLongFrameHandler::processClientMessages, this, unique_id);
+                /* Default-construct the CV entry while we still hold
+                 * client_threads_mutex_ so it exists before notify below */
+                {
+                    std::lock_guard<std::mutex> qlk(client_queue_mutex_);
+                    (void)client_queue_cvs_[unique_id]; /* default-construct */
+                }
+                client_threads_.emplace(
+                    unique_id,
+                    std::thread(&PcanLongFrameHandler::clientThread,
+                                this, unique_id));
             }
         }
-        buffer.clear();
-        client_queue_cvs_[unique_id].notify_one();
+
+        /* Notify client thread using client_queue_mutex_ (same as its wait) */
+        {
+            std::lock_guard<std::mutex> lk(client_queue_mutex_);
+            client_queue_cvs_[unique_id].notify_one();
+        }
     }
 }
 
+/* =========================================================================
+ * Private — per-device client thread
+ * ========================================================================= */
+
 /**
- * @brief Per-client worker thread that dequeues and parses messages for one unique_id.
+ * @brief Per-sensor worker thread that parses and publishes messages for one unique_id.
  *
- * @details Reads the 4-byte message-type field (bytes 0–3, little-endian) and dispatches
- *          to handleRadarScanMessage() or handleRadarTrackMessage() based on the HeaderType.
+ * @details Reads the 4-byte message-type field (little-endian) and dispatches to
+ *          handleScanMessage() / handlePointCloud2Message() or handleRadarTrackMessage().
  *
- * @param unique_id The sensor unique ID this thread is dedicated to processing.
+ * @param unique_id The sensor unique ID this thread is dedicated to.
  */
-void PcanLongFrameHandler::processClientMessages(uint32_t unique_id) {
-    radar_msgs::msg::RadarScan radar_scan_msg;
+void PcanLongFrameHandler::clientThread(uint32_t unique_id)
+{
+    radar_msgs::msg::RadarScan    radar_scan_msg;
+    radar_msgs::msg::RadarTracks  radar_tracks_msg;
     sensor_msgs::msg::PointCloud2 radar_cloud_msg;
-    radar_msgs::msg::RadarTracks radar_tracks_msg;
     std::deque<sensor_msgs::msg::PointCloud2> radar_cloud_buffer;
 
-    std::vector<uint8_t> buffer(BUFFER_SIZE);
+    std::vector<uint8_t> buffer;
+    buffer.reserve(kBufferSize);
 
-    while (process_runnings.load()) {
-        // std::vector<uint8_t> buffer(BUFFER_SIZE);
+    while (client_threads_running_.load()) {
         {
-            std::unique_lock<std::mutex> lock(client_queue_mutex_);
-            client_queue_cvs_[unique_id].wait(lock, [this, &unique_id] {
-                return !client_message_queues_[unique_id].empty() || !process_runnings.load();
+            std::unique_lock<std::mutex> lk(client_queue_mutex_);
+            client_queue_cvs_[unique_id].wait(lk, [this, unique_id] {
+                return !client_message_queues_[unique_id].empty()
+                       || !client_threads_running_.load();
             });
 
-            if (!process_runnings.load()) {
+            if (!client_threads_running_.load()) {
                 break;
             }
 
@@ -287,179 +337,212 @@ void PcanLongFrameHandler::processClientMessages(uint32_t unique_id) {
             client_message_queues_[unique_id].pop();
         }
 
-        uint32_t msg_type = Conversion::le_to_u32(buffer.data());
+        const uint32_t msg_type = Conversion::le_to_u32(buffer.data());
 
-        switch (msg_type) {
-            case HeaderType::HEADER_SCAN:
-                handleRadarScanMessage(buffer, radar_scan_msg, radar_cloud_msg, radar_cloud_buffer);
+        switch (static_cast<HeaderType>(msg_type)) {
+            case HeaderType::SCAN:
+                handleScanMessage(buffer, radar_scan_msg);
+                if (point_cloud2_setting_) {
+                    handlePointCloud2Message(buffer, radar_cloud_msg,
+                                             radar_cloud_buffer);
+                }
                 break;
-            case HeaderType::HEADER_TRACK:
-                //handleRadarTrackMessage(buffer, radar_tracks_msg);
+
+            case HeaderType::TRACK:
+                /* handleRadarTrackMessage(buffer, radar_tracks_msg); */
                 break;
+
             default:
-                RCLCPP_WARN(rclcpp::get_logger("processClientMessages"), "Unknown message type: %08x", msg_type);
+                RCLCPP_WARN(radar_node_->get_logger(),
+                            "clientThread: unknown msg_type 0x%08x", msg_type);
                 break;
         }
-        buffer.clear();
     }
 }
 
-/**
- * @brief Parses a HEADER_SCAN payload and publishes RadarScan and (optionally) PointCloud2.
- *
- * @param buffer             Raw payload buffer (modified via move on queue pop).
- * @param radar_scan_msg     Accumulates RadarReturn entries across packets; cleared after publish.
- * @param radar_cloud_msg    Accumulates point-cloud data; cleared after assembly.
- * @param radar_cloud_buffer Rolling buffer of recent PointCloud2 messages for multi-frame assembly.
- */
-void PcanLongFrameHandler::handleRadarScanMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarScan& radar_scan_msg,
-        sensor_msgs::msg::PointCloud2& radar_cloud_msg, std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer) {
+/* =========================================================================
+ * Private — SCAN handler (RadarScan only)
+ * ========================================================================= */
 
+/**
+ * @brief Parses a SCAN payload packet and publishes a RadarScan message when complete.
+ *
+ * @param buffer         Raw payload buffer.
+ * @param radar_scan_msg Accumulates RadarReturn entries; cleared after each publish.
+ */
+void PcanLongFrameHandler::handleScanMessage(
+    std::vector<uint8_t>& buffer,
+    radar_msgs::msg::RadarScan& radar_scan_msg)
+{
+    bool complete = false;
     {
-        bool completeRadarScanMsg = false;
-        {
-            std::lock_guard<std::mutex> lock(parse_mutex_);
-            message_parser_.parseRadarScanMsg(&buffer[MSG_TYPE_OFFSET], radar_scan_msg, completeRadarScanMsg);
-        }
+        std::lock_guard<std::mutex> lk(parse_mutex_);
+        message_parser_.parseRadarScanMsg(
+            &buffer[kMsgTypeOffset], radar_scan_msg, complete);
+    }
 
-        if (completeRadarScanMsg) {
-            std::lock_guard<std::mutex> lock(publish_mutex_);
+    if (complete) {
+        std::lock_guard<std::mutex> lk(publish_mutex_);
 #ifdef DEBUG_BUILD
-            uint32_t time_sync_scan = radar_scan_msg.header.stamp.nanosec / 10000000;
-            uint32_t UID = Conversion::le_to_u32(&buffer[MSG_TYPE_OFFSET]);
-            uint32_t TPN = Conversion::le_to_u32(&buffer[24]);
-            RCLCPP_DEBUG(radar_node_->get_logger(), "UID: %08x TPN: %03u %02u ms", UID, TPN, time_sync_scan);
+        const uint32_t time_ms  = radar_scan_msg.header.stamp.nanosec / 10000000u;
+        const uint32_t uid      = Conversion::le_to_u32(&buffer[kMsgTypeOffset]);
+        const uint32_t tpn      = Conversion::le_to_u32(&buffer[24u]);
+        RCLCPP_DEBUG(radar_node_->get_logger(),
+                     "UID: 0x%08x TPN: %03u  %02u ms", uid, tpn, time_ms);
 #endif
-            radar_node_->publishRadarScanMsg(radar_scan_msg);
-            radar_scan_msg.returns.clear();
-        }
-    }
-
-    if (point_cloud2_setting_) {
-        bool completePointCloud2Msg = false;
-        {
-            std::lock_guard<std::mutex> lock(parse_mutex_);
-            message_parser_.parsePointCloud2Msg(&buffer[MSG_TYPE_OFFSET], radar_cloud_msg, completePointCloud2Msg);
-        }
-
-        if (completePointCloud2Msg) {
-            std::lock_guard<std::mutex> lock(publish_mutex_);
-            sensor_msgs::msg::PointCloud2 multiple_cloud_messages;
-            assemblePointCloud(radar_cloud_buffer, radar_cloud_msg, multiple_cloud_messages);
-
-            uint32_t time_sync_cloud = radar_cloud_msg.header.stamp.nanosec / 10000000;
-            if (isNewTimeSync(time_sync_cloud)) {
-                //RCLCPP_DEBUG(radar_node_->get_logger(), "id: RADARS 10ms %02u", time_sync_cloud);
-                radar_node_->publishRadarPointCloud2(radar_cloud_msgs);
-                radar_cloud_msgs.data.clear();
-                radar_cloud_msgs = std::move(multiple_cloud_messages);
-                radar_cloud_msgs.header.frame_id = "RADARS";
-            } else {
-                mergePointCloud(multiple_cloud_messages, radar_cloud_msgs);
-            }
-            radar_cloud_msg.data.clear();
-        }
+        radar_node_->publishRadarScanMsg(radar_scan_msg);
+        radar_scan_msg.returns.clear();
     }
 }
 
+/* =========================================================================
+ * Private — PointCloud2 handler
+ * ========================================================================= */
+
 /**
- * @brief function to assemble point cloud messages into a single message
+ * @brief Parses a SCAN payload for PointCloud2 and publishes on a 10 ms time-sync boundary.
  *
- * @param radar_cloud_buffer
- * @param radar_cloud_msg
- * @param multiple_cloud_messages
+ * @param buffer             Raw payload buffer.
+ * @param radar_cloud_msg    Per-packet cloud data; cleared after assembly.
+ * @param radar_cloud_buffer Rolling buffer of recent clouds for multi-frame assembly.
  */
-void PcanLongFrameHandler::assemblePointCloud(std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer,
-        const sensor_msgs::msg::PointCloud2& radar_cloud_msg, sensor_msgs::msg::PointCloud2& multiple_cloud_messages) {
+void PcanLongFrameHandler::handlePointCloud2Message(
+    std::vector<uint8_t>& buffer,
+    sensor_msgs::msg::PointCloud2& radar_cloud_msg,
+    std::deque<sensor_msgs::msg::PointCloud2>& radar_cloud_buffer)
+{
+    bool complete = false;
+    {
+        std::lock_guard<std::mutex> lk(parse_mutex_);
+        message_parser_.parsePointCloud2Msg(
+            &buffer[kMsgTypeOffset], radar_cloud_msg, complete);
+    }
 
-    if (message_number_ > 1) {
-        radar_cloud_buffer.push_back(radar_cloud_msg);
-        if (radar_cloud_buffer.size() > message_number_) {
-            radar_cloud_buffer.pop_front();
-        }
+    if (!complete) {
+        return;
+    }
 
-        multiple_cloud_messages.width = 0;
-        multiple_cloud_messages.height = 1;
-        multiple_cloud_messages.is_dense = true;
-        multiple_cloud_messages.is_bigendian = false;
-        multiple_cloud_messages.point_step = radar_cloud_msg.point_step;
-        multiple_cloud_messages.fields = radar_cloud_msg.fields;
-        multiple_cloud_messages.header = radar_cloud_msg.header;
+    std::lock_guard<std::mutex> lk(publish_mutex_);
 
-        for (const auto& msg : radar_cloud_buffer) {
-            multiple_cloud_messages.width += msg.width;
-            multiple_cloud_messages.data.insert(multiple_cloud_messages.data.end(),
-                                                std::make_move_iterator(msg.data.begin()),
-                                                std::make_move_iterator(msg.data.end()));
-        }
-        multiple_cloud_messages.row_step = multiple_cloud_messages.point_step * multiple_cloud_messages.width;
+    sensor_msgs::msg::PointCloud2 assembled;
+    assemblePointCloud(radar_cloud_buffer, radar_cloud_msg, assembled);
+
+    const uint32_t time_sync =
+        radar_cloud_msg.header.stamp.nanosec / 10000000u;
+
+    if (isNewTimeSync(time_sync)) {
+        radar_node_->publishRadarPointCloud2(radar_cloud_msgs_);
+        radar_cloud_msgs_.data.clear();
+        radar_cloud_msgs_              = std::move(assembled);
+        radar_cloud_msgs_.header.frame_id = "RADARS";
     } else {
-        multiple_cloud_messages = radar_cloud_msg;
+        mergePointCloud(assembled, radar_cloud_msgs_);
     }
+
+    radar_cloud_msg.data.clear();
 }
 
+/* =========================================================================
+ * Private — point-cloud utilities
+ * ========================================================================= */
+
 /**
- * @brief function to merge multiple point cloud messages
+ * @brief Combines a rolling window of PointCloud2 messages into one output cloud.
  *
- * @param multiple_cloud_messages
- * @param radar_cloud_msgs
+ * @param buffer Rolling deque of recent messages (max size = message_number_).
+ * @param msg    Newly completed per-packet cloud to add.
+ * @param out    Output cloud combining all buffered messages.
  */
-void PcanLongFrameHandler::mergePointCloud(const sensor_msgs::msg::PointCloud2& multiple_cloud_messages,
-        sensor_msgs::msg::PointCloud2& radar_cloud_msgs) {
+void PcanLongFrameHandler::assemblePointCloud(
+    std::deque<sensor_msgs::msg::PointCloud2>& buffer,
+    const sensor_msgs::msg::PointCloud2& msg,
+    sensor_msgs::msg::PointCloud2& out)
+{
+    if (message_number_ <= 1u) {
+        out = msg;
+        return;
+    }
 
-    radar_cloud_msgs.width += multiple_cloud_messages.width;
-    radar_cloud_msgs.row_step += multiple_cloud_messages.row_step;
-    radar_cloud_msgs.data.insert(radar_cloud_msgs.data.end(),
-                                 std::make_move_iterator(multiple_cloud_messages.data.begin()),
-                                 std::make_move_iterator(multiple_cloud_messages.data.end()));
+    buffer.push_back(msg);
+    if (buffer.size() > message_number_) {
+        buffer.pop_front();
+    }
+
+    out.width       = 0u;
+    out.height      = 1u;
+    out.is_dense    = true;
+    out.is_bigendian = false;
+    out.point_step  = msg.point_step;
+    out.fields      = msg.fields;
+    out.header      = msg.header;
+    out.data.clear();
+
+    for (const auto& src : buffer) {
+        out.width += src.width;
+        out.data.insert(out.data.end(),
+                        std::make_move_iterator(src.data.begin()),
+                        std::make_move_iterator(src.data.end()));
+    }
+    out.row_step = out.point_step * out.width;
 }
 
 /**
- * @brief Detects whether the 10 ms time-sync bucket has changed since the last call.
+ * @brief Appends the points from @p src into the accumulator @p dst.
  *
- * @param time_sync_cloud Current time-sync value (nanosec / 10,000,000).
- * @return true  if the value differs from the previous call (new sync window).
- * @return false if the value is unchanged.
+ * @param src Cloud to merge (width, row_step, and data are added to dst).
+ * @param dst Accumulator cloud that is extended in place.
  */
-bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud) {
-    bool isNew = (time_sync_pre_cloud_ != time_sync_cloud);
-    time_sync_pre_cloud_ = time_sync_cloud;
-    return isNew;
+void PcanLongFrameHandler::mergePointCloud(
+    const sensor_msgs::msg::PointCloud2& src,
+    sensor_msgs::msg::PointCloud2& dst)
+{
+    dst.width    += src.width;
+    dst.row_step += src.row_step;
+    dst.data.insert(dst.data.end(),
+                    std::make_move_iterator(src.data.begin()),
+                    std::make_move_iterator(src.data.end()));
 }
 
 /**
- * @brief Parses a HEADER_TRACK payload and publishes a RadarTracks message.
+ * @brief Detects a new 10 ms time-sync window by comparing with the previous value.
+ *
+ * @param time_sync_cloud Current value (nanosec / 10,000,000).
+ * @return true if the value changed since the last call, false if unchanged.
+ */
+bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud)
+{
+    const bool is_new = (time_sync_pre_cloud_ != time_sync_cloud);
+    time_sync_pre_cloud_ = static_cast<uint8_t>(time_sync_cloud);
+    return is_new;
+}
+
+/* =========================================================================
+ * Private — track handler (placeholder)
+ * ========================================================================= */
+
+/**
+ * @brief Parses a TRACK payload and publishes a RadarTracks message when complete.
+ *
+ * @note Full track parsing is not yet implemented; parseRadarTrackMsg() is a no-op.
  *
  * @param buffer           Raw payload buffer.
  * @param radar_tracks_msg Accumulates RadarTrack entries; cleared after publish.
  */
-void PcanLongFrameHandler::handleRadarTrackMessage(std::vector<uint8_t>& buffer, radar_msgs::msg::RadarTracks& radar_tracks_msg) {
-    bool completeRadarTrackMsg = false;
+void PcanLongFrameHandler::handleRadarTrackMessage(
+    std::vector<uint8_t>& buffer,
+    radar_msgs::msg::RadarTracks& radar_tracks_msg)
+{
+    bool complete = false;
     {
-        std::lock_guard<std::mutex> lock(parse_mutex_);
-        message_parser_.parseRadarTrackMsg(&buffer[MSG_TYPE_OFFSET], radar_tracks_msg, completeRadarTrackMsg);
+        std::lock_guard<std::mutex> lk(parse_mutex_);
+        message_parser_.parseRadarTrackMsg(
+            &buffer[kMsgTypeOffset], radar_tracks_msg, complete);
     }
-    if (completeRadarTrackMsg) {
-        std::lock_guard<std::mutex> lock(publish_mutex_);
+    if (complete) {
+        std::lock_guard<std::mutex> lk(publish_mutex_);
         radar_node_->publishRadarTrackMsg(radar_tracks_msg);
         radar_tracks_msg.tracks.clear();
     }
 }
 
-/**
- * @brief Sends an application payload to a radar device via the long-frame transport.
- *
- * @param device_id   Target device index.
- * @param msg_id      Application message ID placed in the App-PDU header.
- * @param payload     Pointer to the payload bytes.
- * @param payload_len Length of the payload in bytes.
- * @return payload_len on success, -1 on failure.
- */
-int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
-                                        const uint8_t* payload, int payload_len)
-{
-    (void)msg_id;
-    return can_.send_payload(device_id, msg_id, payload, payload_len) ? payload_len : -1;
-}
-
-}  // namespace au_4d_radar
+} // namespace au_4d_radar

@@ -1,16 +1,16 @@
 /**
  * @file pcan_long_frame.cpp
  * @author antonioko@au-sensor.com
- * @brief CustomTP reassembler and transmitter for large CAN-FD payloads.
+ * @brief CustomTP reassembler/transmitter for large CAN-FD payloads.
  * @version 1.0
- * @date 2026-03-18
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  *
- * @details Implements the custom transport protocol (CustomTP) that splits application
- *          payloads into 64-byte CAN-FD chunks. Each chunk carries a 2-byte header
- *          (PBF flag + 14-bit sequence number) followed by 62 bytes of data.
- *          Reassembled payloads are delivered via a registered LongFrameRxCallback.
+ * @details Splits application payloads into 64-byte CAN-FD chunks. Each chunk
+ *          carries a 2-byte header: PBF flag (bit 7) + 14-bit sequence number,
+ *          followed by 62 bytes of data. The final chunk has PBF = 1.
+ *          Reassembled payloads are delivered via a LongFrameRxCallback.
  */
 
 #include "pcan_long_frame.hpp"
@@ -33,10 +33,10 @@ static constexpr uint32_t FRAME_MAGIC_BE        = 0x12345678u;
 static constexpr uint32_t APP_PDU_HEADER_LENGTH = 16u;
 
 /**
- * @brief Constructs a PcanLongFrame instance and pre-allocates per-device RX state buffers.
+ * @brief Constructs a PcanLongFrame and allocates per-device RX reassembly buffers.
  *
- * @param pcan Reference to the underlying transport layer used for sending frames.
- * @param cfg  Long-frame configuration (CAN IDs, device count, buffer size).
+ * @param pcan Reference to the transport layer used for TX.
+ * @param cfg  Long-frame configuration (CAN IDs, device count, RX buffer size).
  */
 PcanLongFrame::PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg)
     : pcan_(pcan)
@@ -51,11 +51,9 @@ PcanLongFrame::PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg)
 }
 
 /**
- * @brief Registers the callback invoked when a complete App-PDU has been reassembled.
+ * @brief Registers the callback invoked when a complete App-PDU is reassembled.
  *
- * @param cb Callback with signature
- *           void(uint8_t dev_id, uint32_t frame_id, uint32_t frame_count,
- *                uint32_t msg_id, std::vector<uint8_t>&& payload).
+ * @param cb Callback: void(dev_id, frame_id, frame_count, msg_id, payload&&).
  *           Pass an empty std::function to deregister.
  */
 void PcanLongFrame::set_rx_callback(LongFrameRxCallback cb)
@@ -64,18 +62,17 @@ void PcanLongFrame::set_rx_callback(LongFrameRxCallback cb)
 }
 
 /**
- * @brief Transmits a large application payload via the CustomTP chunking protocol.
+ * @brief Transmits a large payload using the CustomTP chunking protocol.
  *
- * @details Prepends a 16-byte App-PDU header (magic 0x12345678, frame_count, msg_id,
- *          payload_len) and splits the resulting buffer into 64-byte CAN-FD frames.
- *          All intermediate frames carry a cleared PBF bit; the final frame sets PBF=1.
+ * @details Prepends a 16-byte App-PDU header (magic, frame_count, msg_id, payload_len)
+ *          and splits the result into 64-byte CAN-FD frames. Intermediate frames have
+ *          PBF = 0; the final frame sets PBF = 1 (bit 7 of byte 0).
  *
  * @param dev_id      Target device index (0 … device_count-1).
- * @param msg_id      Application message identifier placed in the App-PDU header.
- * @param payload     Pointer to the application data bytes.
- * @param payload_len Length of the application data in bytes (must be > 0).
- * @return true  if all frames were transmitted successfully.
- * @return false on invalid arguments or a send failure.
+ * @param msg_id      Application message ID placed in the App-PDU header.
+ * @param payload     Pointer to application data.
+ * @param payload_len Payload length in bytes (must be > 0).
+ * @return true if all frames were sent, false on invalid args or send error.
  */
 bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
 {
@@ -134,12 +131,11 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
 }
 
 /**
- * @brief Checks whether a CAN ID falls in the configured long-frame RX range.
+ * @brief Checks whether a CAN ID belongs to the long-frame RX range.
  *
- * @param can_id      Received CAN ID to test.
- * @param dev_id_out  Set to the computed device index when the function returns true.
- * @return true   if can_id maps to a valid device index.
- * @return false  otherwise.
+ * @param can_id      Received CAN ID.
+ * @param dev_id_out  Set to the device index when the function returns true.
+ * @return true  if can_id maps to a valid device, false otherwise.
  */
 bool PcanLongFrame::is_long_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const
 {
@@ -157,13 +153,12 @@ bool PcanLongFrame::is_long_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) cons
 }
 
 /**
- * @brief Dispatches an incoming CAN frame to the CustomTP reassembler if its ID matches.
+ * @brief Dispatches a CAN frame to the reassembler if its ID is in the long-frame RX range.
  *
  * @param can_id   CAN ID of the received frame.
- * @param data     Pointer to frame payload bytes.
- * @param data_len Length of the frame payload.
- * @return true  if the CAN ID was handled by this instance.
- * @return false if the CAN ID does not belong to the long-frame RX range.
+ * @param data     Frame payload bytes.
+ * @param data_len Payload length.
+ * @return true if handled, false if the CAN ID is out of range.
  */
 bool PcanLongFrame::handle_long_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
 {
@@ -177,15 +172,14 @@ bool PcanLongFrame::handle_long_can_frame(uint32_t can_id, const uint8_t* data, 
 }
 
 /**
- * @brief Reassembles a single CustomTP CAN-FD chunk into the per-device RX buffer.
+ * @brief Reassembles one CustomTP chunk into the per-device RX buffer.
  *
- * @details Validates the 2-byte chunk header (PBF + 14-bit sequence), appends the
- *          62-byte data portion to the device's reassembly buffer, and — when the
- *          last chunk (PBF=1) is received — validates the App-PDU header (magic,
- *          payload_len) and invokes the registered LongFrameRxCallback.
+ * @details Validates the sequence number, appends the 62-byte chunk, and — on
+ *          receipt of the last chunk (PBF = 1) — validates the App-PDU magic and
+ *          payload length, then fires the LongFrameRxCallback.
  *
  * @param dev_id   Device index derived from the received CAN ID.
- * @param data     Pointer to the 64-byte CAN-FD frame payload.
+ * @param data     Raw 64-byte CAN-FD frame payload.
  * @param data_len Actual payload length (must be ≥ 2).
  */
 void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len)
@@ -257,17 +251,21 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     const uint64_t needed = APP_PDU_HEADER_LENGTH + static_cast<uint64_t>(payload_len);
 
     if (frame_id != FRAME_MAGIC_BE) {
-        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
-                     "[Long TP] bad frame magic dev=%u frame_id=0x%08X frame_count=%u",
-                     dev_id, frame_id, frame_count);
+        if (!cfg_.quiet) {
+            RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
+                         "[Long TP] bad frame magic dev=%u frame_id=0x%08X frame_count=%u",
+                         dev_id, frame_id, frame_count);
+        }
         st.reset();
         return;
     }
 
     if ((needed > st.buf.size()) || (needed > st.len)) {
-        RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
-                     "[Long TP] length mismatch dev=%u need=%llu have=%u",
-                     dev_id, static_cast<unsigned long long>(needed), st.len);
+        if (!cfg_.quiet) {
+            RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"),
+                         "[Long TP] length mismatch dev=%u need=%llu have=%u",
+                         dev_id, static_cast<unsigned long long>(needed), st.len);
+        }
         st.reset();
         return;
     }
