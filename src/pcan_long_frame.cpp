@@ -2,7 +2,7 @@
  * @file pcan_long_frame.cpp
  * @author antonioko@au-sensor.com
  * @brief CustomTP reassembler and transmitter for large CAN-FD payloads.
- * @version 1.1
+ * @version 1.0
  * @date 2026-03-18
  *
  * @copyright Copyright AU (c) 2026

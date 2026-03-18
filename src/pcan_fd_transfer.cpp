@@ -2,7 +2,7 @@
  * @file pcan_fd_transfer.cpp
  * @author antonioko@au-sensor.com
  * @brief Pure CAN-FD transport layer implementation using the PEAK PCAN USB adapter.
- * @version 1.1
+ * @version 1.0
  * @date 2026-03-18
  *
  * @copyright Copyright AU (c) 2026

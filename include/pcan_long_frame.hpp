@@ -12,7 +12,7 @@ struct PcanLongFrameConfig
     uint16_t tx_base_id = 0x500u; /* PC -> S32 long */
     uint16_t rx_base_id = 0x550u; /* S32 -> PC long */
     uint8_t device_count = 4u;
-    size_t rx_buf_size = 64u * 1024u;
+    size_t rx_buf_size = 16u * 1024u;
 };
 
 class PcanLongFrame

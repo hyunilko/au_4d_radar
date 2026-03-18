@@ -2,7 +2,7 @@
  * @file pcan_short_frame.cpp
  * @author antonioko@au-sensor.com
  * @brief Single-frame CAN-FD command/response handler for the short-frame protocol.
- * @version 1.1
+ * @version 1.0
  * @date 2026-03-18
  *
  * @copyright Copyright AU (c) 2026

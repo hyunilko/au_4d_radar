@@ -2,7 +2,7 @@
  * @file pcan_short_frame_handler.cpp
  * @author antonioko@au-sensor.com
  * @brief High-level handler for short-frame CAN commands (ACK tracking, time-sync).
- * @version 1.1
+ * @version 1.0
  * @date 2026-03-18
  *
  * @copyright Copyright AU (c) 2026
