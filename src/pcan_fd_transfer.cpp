@@ -278,7 +278,19 @@ void PcanFdTransfer::poll_rx(void)
 /* ---------- 수신 루프 (transport 계층이 직접 소유) ----------------------- */
 
 /**
- * @brief 수신 스레드를 시작한다.
+ * @brief 채널을 초기화하고 수신 스레드를 시작하는 편의 메쏘드.
+ *
+ * @details au_4d_radar.cpp 에서 Long / Short 핸들러의 콜백을 모두 등록한 뒤
+ *          이 함수를 호출한다.
+ *          내부적으로 init() → start_rx() 순서를 보장한다.
+ */
+void PcanFdTransfer::start(void)
+{
+    init();
+    start_rx();
+}
+
+/**
  *
  * @details 핸들러가 PcanLongFrame / PcanShortFrame 에 RX 콜백을 등록한 뒤
  *          이 함수를 호출해야 프레임이 정상적으로 전달된다.

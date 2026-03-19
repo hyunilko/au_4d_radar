@@ -165,11 +165,6 @@ bool PcanLongFrameHandler::initialize()
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
-    if (!can_.init()) {
-        RCLCPP_ERROR(radar_node_->get_logger(), "PCAN init failed");
-        return false;
-    }
-
     /* PcanFdTransfer 래퍼를 거치지 않고 PcanLongFrame 에 직접 콜백 등록 */
     can_.long_frame().set_rx_callback(
         [this](uint8_t  /*dev_id*/,

@@ -55,6 +55,12 @@ public:
     bool init(void);
     void shutdown(void);
 
+    /**
+     * @brief init() + start_rx() 를 순서대로 호출하는 편의 메쏘드.
+     *        au_4d_radar.cpp 에서 핸들러 콜백 등록 완료 후 호출.
+     */
+    void start(void);
+
     /* ----- 수신 루프 제어 (transport 계층이 직접 소유) -------------------- */
     /**
      * @brief 수신 스레드 시작.
