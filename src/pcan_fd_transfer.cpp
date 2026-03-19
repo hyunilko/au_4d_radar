@@ -37,10 +37,11 @@ PcanFdTransfer::PcanFdTransfer(const Config& cfg)
 }
 
 /**
- * @brief Destructor. Calls shutdown() to release the PCAN channel.
+ * @brief Destructor. Calls stop_rx() then shutdown() to release the PCAN channel.
  */
 PcanFdTransfer::~PcanFdTransfer()
 {
+    stop_rx();
     shutdown();
 }
 
@@ -274,33 +275,51 @@ void PcanFdTransfer::poll_rx(void)
     }
 }
 
-/* ---------- wrappers forwarded from sub-objects -------------------------- */
+/* ---------- 수신 루프 (transport 계층이 직접 소유) ----------------------- */
 
 /**
- * @brief Registers the long-frame RX callback on the owned PcanLongFrame instance.
+ * @brief 수신 스레드를 시작한다.
  *
- * @param cb Callback invoked when a complete App-PDU has been reassembled.
- *           Pass an empty std::function to deregister.
+ * @details 핸들러가 PcanLongFrame / PcanShortFrame 에 RX 콜백을 등록한 뒤
+ *          이 함수를 호출해야 프레임이 정상적으로 전달된다.
+ *          이미 실행 중이면 아무 일도 하지 않는다.
  */
-void PcanFdTransfer::set_long_rx_callback(LongRxCallback cb)
+void PcanFdTransfer::start_rx(void)
 {
-    if (long_frame_) {
-        long_frame_->set_rx_callback(std::move(cb));
+    if (rx_running_.load()) {
+        return;
+    }
+    rx_running_.store(true);
+    rx_thread_ = std::thread(&PcanFdTransfer::receiveThread, this);
+}
+
+/**
+ * @brief 수신 스레드를 정지하고 join 한다.
+ */
+void PcanFdTransfer::stop_rx(void)
+{
+    rx_running_.store(false);
+    if (rx_thread_.joinable()) {
+        rx_thread_.join();
     }
 }
 
 /**
- * @brief Registers the short-frame RX callback on the owned PcanShortFrame instance.
+ * @brief 수신 루프 본체 — poll_rx() 를 1 ms 간격으로 반복 호출.
  *
- * @param cb Callback invoked when a short command frame has been parsed.
- *           Pass an empty std::function to deregister.
+ * @details Short / Long 양쪽 프레임 모두 이 스레드에서 처리되므로
+ *          PcanLongFrameHandler 와 PcanShortFrameHandler 모두에게 독립적으로
+ *          프레임이 전달된다.
  */
-void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
+void PcanFdTransfer::receiveThread(void)
 {
-    if (short_frame_) {
-        short_frame_->set_rx_callback(std::move(cb));
+    while (rx_running_.load()) {
+        poll_rx();
+        usleep(1000);
     }
 }
+
+/* ---------- 프로토콜 레이어 접근자 --------------------------------------- */
 
 /**
  * @brief Returns a reference to the owned PcanLongFrame instance.

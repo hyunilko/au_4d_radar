@@ -52,10 +52,13 @@ PcanLongFrameHandler::~PcanLongFrameHandler()
  * ========================================================================= */
 
 /**
- * @brief Initialises the PCAN channel and starts the receive and process threads.
+ * @brief Registers the long-frame RX callback on PcanLongFrame and starts the
+ *        process/client threads. Does NOT start the transport receive thread.
  *
- * @details Calls initialize() then, on success, sets all running flags and spawns
- *          receiveThread() and processThread().
+ * @details start_rx()는 PcanShortFrameHandler::start() 이후
+ *          au_4d_radar.cpp 에서 can_fd_transfer_.start_rx() 로 명시적으로
+ *          호출해야 한다. 이렇게 해야 Short / Long 콜백이 모두 등록된 뒤
+ *          수신 스레드가 시작되어 첫 HEART_BEAT 를 안전하게 처리할 수 있다.
  */
 void PcanLongFrameHandler::start()
 {
@@ -65,12 +68,12 @@ void PcanLongFrameHandler::start()
         return;
     }
 
-    rx_thread_running_.store(true);
     process_thread_running_.store(true);
     client_threads_running_.store(true);
 
-    receive_thread_ = std::thread(&PcanLongFrameHandler::receiveThread, this);
-    process_thread_ = std::thread(&PcanLongFrameHandler::processThread,  this);
+    /* 수신 루프는 PcanFdTransfer::start_rx() 로 외부에서 시작
+     * (au_4d_radar.cpp 에서 can_short_handler_.start() 이후에 호출) */
+    process_thread_ = std::thread(&PcanLongFrameHandler::processThread, this);
 }
 
 /**
@@ -78,7 +81,6 @@ void PcanLongFrameHandler::start()
  */
 void PcanLongFrameHandler::stop()
 {
-    rx_thread_running_.store(false);
     process_thread_running_.store(false);
     client_threads_running_.store(false);
 
@@ -93,7 +95,6 @@ void PcanLongFrameHandler::stop()
         }
     }
 
-    if (receive_thread_.joinable()) { receive_thread_.join(); }
     if (process_thread_.joinable()) { process_thread_.join(); }
 
     {
@@ -109,7 +110,9 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    can_.set_long_rx_callback(PcanFdTransfer::LongRxCallback{});
+    /* 수신 스레드 정지 → Long RX 콜백 해제 → 채널 닫기 */
+    can_.stop_rx();
+    can_.long_frame().set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
     can_.shutdown();
 }
 
@@ -146,11 +149,12 @@ std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
  * ========================================================================= */
 
 /**
- * @brief Opens the PCAN channel and registers the long-frame RX callback.
+ * @brief Opens the PCAN channel and registers the long-frame RX callback directly
+ *        on PcanLongFrame (transport 레이어를 경유하지 않음).
  *
- * @details Reads YAML settings (point-cloud mode, message number), calls can_.init(),
- *          and installs the lambda that validates payloads and pushes them onto the
- *          shared message queue.
+ * @details Reads YAML settings, calls can_.init(), then registers the lambda
+ *          directly via can_.long_frame().set_rx_callback() so that the call path
+ *          follows: PcanFdTransfer → PcanLongFrame → PcanLongFrameHandler.
  *
  * @return true on success, false if PCAN init fails.
  */
@@ -166,7 +170,8 @@ bool PcanLongFrameHandler::initialize()
         return false;
     }
 
-    can_.set_long_rx_callback(
+    /* PcanFdTransfer 래퍼를 거치지 않고 PcanLongFrame 에 직접 콜백 등록 */
+    can_.long_frame().set_rx_callback(
         [this](uint8_t  /*dev_id*/,
                uint32_t /*frame_id*/,
                uint32_t /*frame_count*/,
@@ -200,24 +205,6 @@ bool PcanLongFrameHandler::initialize()
         });
 
     return true;
-}
-
-/* =========================================================================
- * Private — receive thread (CAN polling)
- * ========================================================================= */
-
-/**
- * @brief RX polling thread — calls can_.poll_rx() in a tight loop.
- *
- * @details poll_rx() drains the hardware queue and dispatches each frame via
- *          the registered callback, which enqueues payloads for processThread().
- */
-void PcanLongFrameHandler::receiveThread()
-{
-    while (rx_thread_running_.load()) {
-        can_.poll_rx();
-        usleep(1000);
-    }
 }
 
 /* =========================================================================

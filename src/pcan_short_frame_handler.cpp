@@ -1,7 +1,7 @@
 /**
  * @file pcan_short_frame_handler.cpp
  * @author antonioko@au-sensor.com
- * @brief High-level short-frame handler
+ * @brief High-level short-frame handler: ACK tracking, unique-ID cache, and time-sync.
  * @version 1.0
  * @date 2026-03
  *
@@ -44,11 +44,18 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 }
 
 /**
- * @brief Installs the short-frame RX callback so incoming frames are dispatched.
+ * @brief PcanShortFrame 에 직접 RX 콜백을 등록한다 (PcanFdTransfer 래퍼 불경유).
+ *
+ * @details 콜백 등록 경로:
+ *          PcanShortFrameHandler::start()
+ *              → can_.short_frame().set_rx_callback()   ← PcanShortFrame 직접
+ *                  ← PcanFdTransfer::receiveThread() → poll_rx()
+ *                      → PcanShortFrame::handle_short_can_frame() → rx_cb_()
+ *                          → PcanShortFrameHandler::handle_short_frame()
  */
 void PcanShortFrameHandler::start(void)
 {
-    can_.set_short_rx_callback(
+    can_.short_frame().set_rx_callback(
         [this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id,
                const std::vector<uint8_t>& data)
         {
@@ -57,11 +64,11 @@ void PcanShortFrameHandler::start(void)
 }
 
 /**
- * @brief Deregisters the RX callback and clears all pending ACK state.
+ * @brief PcanShortFrame 의 RX 콜백을 해제하고 내부 상태를 초기화한다.
  */
 void PcanShortFrameHandler::stop(void)
 {
-    can_.set_short_rx_callback(PcanFdTransfer::ShortRxCallback{});
+    can_.short_frame().set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
 
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = AckCallback{};

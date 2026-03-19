@@ -37,7 +37,6 @@ namespace au_4d_radar
         bool initialize();
 
         /* ----- thread entry points --------------------------------------- */
-        void receiveThread();
         void processThread();
         void clientThread(uint32_t unique_id);
 
@@ -79,7 +78,6 @@ namespace au_4d_radar
         MessageParser message_parser_;
 
         /* --- thread-lifecycle atomics ------------------------------------ */
-        std::atomic<bool> rx_thread_running_{false};
         std::atomic<bool> process_thread_running_{false};
         std::atomic<bool> client_threads_running_{false};
 
@@ -88,7 +86,6 @@ namespace au_4d_radar
         uint32_t message_number_{0u};
 
         /* --- receive → process pipeline --------------------------------- */
-        std::thread receive_thread_;
         std::thread process_thread_;
 
         std::queue<std::vector<uint8_t>> message_queue_;

@@ -68,8 +68,16 @@ device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions& options)
     initInterruptHandler();
     YamlParser::init();
 
+    /* 콜백 등록 순서:
+     *   1. can_long_handler_.start()  → PcanLongFrame::set_rx_callback()  등록
+     *   2. can_short_handler_.start() → PcanShortFrame::set_rx_callback() 등록
+     *   3. can_fd_transfer_.start_rx() → 수신 스레드 시작
+     *
+     * Short / Long 콜백이 모두 등록된 뒤 수신 스레드를 시작해야
+     * 첫 HEART_BEAT 도착 시 TIME_SYNC 를 정상 응답할 수 있다. */
     can_long_handler_.start();
     can_short_handler_.start();
+    can_fd_transfer_.start_rx();   /* 모든 콜백 등록 완료 후 수신 시작 */
 
     RCLCPP_DEBUG(get_logger(), "AU 4D Radar Driver Node started");
 }

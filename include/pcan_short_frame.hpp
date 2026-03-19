@@ -33,6 +33,7 @@ enum class ShortCanCmd : uint32_t
     HEART_BEAT         = 0x10AB4842u,
     TIME_SYNC          = 0x10AB5453u,
     REQUEST_CONNECTION = 0x41551003u,
+    ACK                = 0x5041434Bu,
 };
 
 struct PcanShortFrameConfig
