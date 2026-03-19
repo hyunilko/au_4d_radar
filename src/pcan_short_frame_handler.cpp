@@ -44,7 +44,7 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 }
 
 /**
- * @brief can_short_ 이 PcanShortFrame& 이므로 set_rx_callback() 을 직접 호출한다.
+ * @brief PcanShortFrame의 RX 콜백을 등록하고, 수신된 short frame을 handle_short_frame()으로 전달합니다.
  */
 void PcanShortFrameHandler::start(void)
 {
@@ -208,7 +208,7 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd,
 {
     switch (cmd) {
         case ShortCanCmd::HI:
-            handle_cmd_ack(dev_id, cmd, uniq_id, data);
+            can_short_.send_short_command_ack(dev_id, uniq_id, cmd);
             break;
 
         case ShortCanCmd::HEART_BEAT:
@@ -220,6 +220,10 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd,
         case ShortCanCmd::SENSOR_STOP:
         case ShortCanCmd::RESET:
             /* ACK frames — no action required */
+            break;
+
+        case ShortCanCmd::ACK:
+            handle_cmd_ack(dev_id, cmd, uniq_id, data);
             break;
 
         default:

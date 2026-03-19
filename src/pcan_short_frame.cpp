@@ -65,6 +65,21 @@ bool PcanShortFrame::send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortC
 }
 
 /**
+ * @brief Sends a short command frame with ack.
+ *
+ * @param dev_id  Target device index.
+ * @param uniq_id Unique transaction ID.
+ * @param cmd     received Command identifier.
+ * @return true on success, false on error.
+ */
+bool PcanShortFrame::send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd rcv_cmd)
+{
+    uint8_t frame[CMD_FIELD_LEN] = {0u, };
+    Conversion::u32_to_be(static_cast<uint32_t>(rcv_cmd), &frame[0]);
+    return send_short_command_with_data(dev_id, ShortCanCmd::ACK, uniq_id, frame, CMD_FIELD_LEN);
+}
+
+/**
  * @brief Sends a short command frame with an optional extra payload.
  *
  * @details Builds CMD(4B BE) + UNIQ_ID(4B BE) + payload and calls send_data().

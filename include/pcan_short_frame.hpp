@@ -54,6 +54,7 @@ public:
     explicit PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
 
     bool send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd);
+    bool send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd rcv_cmd);
     bool send_short_command_with_data(uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id, const uint8_t* payload, uint8_t payload_len);
 
     bool handle_short_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
