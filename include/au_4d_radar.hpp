@@ -31,6 +31,15 @@ public:
     void publishRadarTrackMsg(radar_msgs::msg::RadarTracks& msg);
 
     /* ----- ROS parameter helper ----------------------------------------- */
+    /**
+     * @brief Gets a parameter from the ROS 2 node, or declares it with a default value.
+     *
+     * @tparam Param Parameter type.
+     * @param nh Shared pointer to the ROS 2 node.
+     * @param name Parameter name.
+     * @param variable Input/output variable for the parameter value.
+     *                 Its current value is used as the default if the parameter is undeclared.
+     */
     template<typename Param>
     void get_param(rclcpp::Node::SharedPtr nh,
                    const std::string& name,

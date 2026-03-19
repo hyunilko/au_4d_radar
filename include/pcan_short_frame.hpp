@@ -23,7 +23,6 @@
 
 class PcanFdTransfer;
 
-/* S32R45 command IDs (command_def.h 기준) */
 enum class ShortCanCmd : uint32_t
 {
     RESET              = 0x10110100u,

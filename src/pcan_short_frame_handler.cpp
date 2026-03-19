@@ -44,7 +44,8 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 }
 
 /**
- * @brief PcanShortFrame의 RX 콜백을 등록하고, 수신된 short frame을 handle_short_frame()으로 전달합니다.
+ * @brief Registers the RX callback on PcanShortFrame and forwards received short frames
+ *        to handle_short_frame().
  */
 void PcanShortFrameHandler::start(void)
 {
@@ -57,7 +58,7 @@ void PcanShortFrameHandler::start(void)
 }
 
 /**
- * @brief PcanShortFrame 의 RX 콜백을 해제하고 내부 상태를 초기화한다.
+ * @brief Deregisters the PcanShortFrame RX callback and resets internal state.
  */
 void PcanShortFrameHandler::stop(void)
 {

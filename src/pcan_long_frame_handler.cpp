@@ -72,8 +72,8 @@ void PcanLongFrameHandler::start()
 /**
  * @brief Signals all threads to exit and joins them.
  *
- * @details stop_rx() / shutdown() 은 PcanFdTransfer 소멸자가 담당한다.
- *          이 핸들러는 자신이 등록한 RX 콜백만 해제한다.
+ * @details stop_rx() / shutdown() are handled by the PcanFdTransfer destructor.
+ *          This handler only deregisters the RX callback it registered.
  */
 void PcanLongFrameHandler::stop()
 {
@@ -142,9 +142,10 @@ std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
 /**
  * @brief Registers the long-frame RX callback directly on PcanLongFrame.
  *
- * @details can_long_ 이 이미 PcanLongFrame& 이므로 set_rx_callback() 을 직접 호출한다.
+ * @details Since can_long_ is already a PcanLongFrame& reference, set_rx_callback()
+ *          is called directly on it.
  *
- * @return true always (PCAN init 은 PcanFdTransfer::start() 에서 담당).
+ * @return true always (PCAN hardware init is handled by PcanFdTransfer::start()).
  */
 bool PcanLongFrameHandler::initialize()
 {
@@ -153,7 +154,7 @@ bool PcanLongFrameHandler::initialize()
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
-    /* can_long_ 이 PcanLongFrame& 이므로 직접 set_rx_callback() 호출 */
+    /* can_long_ is a PcanLongFrame& reference — call set_rx_callback() directly */
     can_long_.set_rx_callback(
         [this](uint8_t  /*dev_id*/,
                uint32_t /*frame_id*/,

@@ -275,14 +275,13 @@ void PcanFdTransfer::poll_rx(void)
     }
 }
 
-/* ---------- 수신 루프 (transport 계층이 직접 소유) ----------------------- */
+/* ---------- Receive loop (owned by the transport layer) ------------------ */
 
 /**
- * @brief 채널을 초기화하고 수신 스레드를 시작하는 편의 메쏘드.
+ * @brief Convenience method that initialises the channel and starts the receive thread.
  *
- * @details au_4d_radar.cpp 에서 Long / Short 핸들러의 콜백을 모두 등록한 뒤
- *          이 함수를 호출한다.
- *          내부적으로 init() → start_rx() 순서를 보장한다.
+ * @details Call this after all Long / Short handler callbacks have been registered
+ *          in au_4d_radar.cpp.  Internally guarantees the order init() → start_rx().
  */
 void PcanFdTransfer::start(void)
 {
@@ -291,10 +290,11 @@ void PcanFdTransfer::start(void)
 }
 
 /**
+ * @brief Starts the CAN FD receive thread.
  *
- * @details 핸들러가 PcanLongFrame / PcanShortFrame 에 RX 콜백을 등록한 뒤
- *          이 함수를 호출해야 프레임이 정상적으로 전달된다.
- *          이미 실행 중이면 아무 일도 하지 않는다.
+ * @details Must be called after handler RX callbacks have been registered on
+ *          PcanLongFrame / PcanShortFrame, otherwise frames will not be delivered.
+ *          If the thread is already running this is a no-op.
  */
 void PcanFdTransfer::start_rx(void)
 {
@@ -306,7 +306,7 @@ void PcanFdTransfer::start_rx(void)
 }
 
 /**
- * @brief 수신 스레드를 정지하고 join 한다.
+ * @brief Signals the receive thread to stop and joins it.
  */
 void PcanFdTransfer::stop_rx(void)
 {
@@ -317,11 +317,11 @@ void PcanFdTransfer::stop_rx(void)
 }
 
 /**
- * @brief 수신 루프 본체 — poll_rx() 를 1 ms 간격으로 반복 호출.
+ * @brief Receive loop body — calls poll_rx() repeatedly at 1 ms intervals.
  *
- * @details Short / Long 양쪽 프레임 모두 이 스레드에서 처리되므로
- *          PcanLongFrameHandler 와 PcanShortFrameHandler 모두에게 독립적으로
- *          프레임이 전달된다.
+ * @details Both Short and Long frames are processed on this thread, so frames
+ *          are delivered independently to both PcanLongFrameHandler and
+ *          PcanShortFrameHandler.
  */
 void PcanFdTransfer::receiveThread(void)
 {
@@ -331,7 +331,7 @@ void PcanFdTransfer::receiveThread(void)
     }
 }
 
-/* ---------- 프로토콜 레이어 접근자 --------------------------------------- */
+/* ---------- Protocol layer accessors ------------------------------------- */
 
 /**
  * @brief Returns a reference to the owned PcanLongFrame instance.

@@ -70,7 +70,7 @@ device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions& options)
 
     can_long_handler_.start();
     can_short_handler_.start();
-    can_fd_transfer_.start();      /* 모든 콜백 등록 완료 후 init + 수신 시작 */
+    can_fd_transfer_.start();      /* After all callbacks are registered, start init + listening */
 
     RCLCPP_DEBUG(get_logger(), "AU 4D Radar Driver Node started");
 }
