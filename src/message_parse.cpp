@@ -1,9 +1,9 @@
 /**
  * @file message_parse.cpp
- * @author antonioko@au-sensor.com, kisoo.kim@au-sensor.com
+ * @author antonioko@au-sensor.com
  * @brief Implementation of MessageParser — radar packet decode.
  * @version 2.0
- * @date 2026-03-11
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  *

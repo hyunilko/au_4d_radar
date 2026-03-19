@@ -125,7 +125,7 @@ void PcanLongFrameHandler::stop()
 int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                        const uint8_t* payload, int payload_len)
 {
-    return can_.send_payload(device_id, msg_id, payload, payload_len)
+    return can_.long_frame().send_long_payload(device_id, msg_id, payload, payload_len)
            ? payload_len
            : -1;
 }

@@ -303,39 +303,26 @@ void PcanFdTransfer::set_short_rx_callback(ShortRxCallback cb)
 }
 
 /**
- * @brief Sends a large application payload via the CustomTP long-frame protocol.
+ * @brief Returns a reference to the owned PcanLongFrame instance.
  *
- * @param dev_id      Target device index.
- * @param msg_id      Application message ID placed in the App-PDU header.
- * @param payload     Pointer to payload bytes.
- * @param payload_len Payload length in bytes.
- * @return true on success, false if long_frame_ is null or transmission fails.
+ * @details Handlers call send_long_payload() directly on the returned object
+ *          instead of going through the now-removed PcanFdTransfer::send_payload()
+ *          wrapper.  Asserts that long_frame_ has been constructed.
  */
-bool PcanFdTransfer::send_payload(uint8_t dev_id, uint32_t msg_id,
-                                   const uint8_t* payload, int payload_len)
+PcanLongFrame& PcanFdTransfer::long_frame()
 {
-    return (long_frame_ != nullptr)
-        ? long_frame_->send_long_payload(dev_id, msg_id, payload, payload_len)
-        : false;
+    return *long_frame_;
 }
 
 /**
- * @brief Sends a short command frame with optional payload via the short-frame protocol.
+ * @brief Returns a reference to the owned PcanShortFrame instance.
  *
- * @param dev_id      Target device index.
- * @param cmd         Command identifier.
- * @param uniq_id     Unique transaction ID embedded in the frame.
- * @param payload     Optional extra payload bytes (may be nullptr).
- * @param payload_len Length of extra payload (0–56 bytes).
- * @return true on success, false if short_frame_ is null or transmission fails.
+ * @details Handlers call send_short_command_with_data() directly on the returned
+ *          object instead of going through the now-removed
+ *          PcanFdTransfer::send_cmd_with_data() wrapper.
+ *          Asserts that short_frame_ has been constructed.
  */
-bool PcanFdTransfer::send_cmd_with_data(uint8_t dev_id, ShortCanCmd cmd,
-                                         uint32_t uniq_id,
-                                         const uint8_t* payload,
-                                         uint8_t payload_len)
+PcanShortFrame& PcanFdTransfer::short_frame()
 {
-    return (short_frame_ != nullptr)
-        ? short_frame_->send_short_command_with_data(dev_id, cmd, uniq_id,
-                                                      payload, payload_len)
-        : false;
+    return *short_frame_;
 }

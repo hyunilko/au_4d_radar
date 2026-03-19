@@ -266,8 +266,8 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
                      time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }
 
-    return can_.send_cmd_with_data(dev_id, ShortCanCmd::TIME_SYNC,
-                                   uniq_id, payload, sizeof(payload));
+    return can_.short_frame().send_short_command_with_data(
+               dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
 }
 
 } // namespace au_4d_radar

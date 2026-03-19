@@ -3,8 +3,8 @@
  * @author Antonio Ko(antonioko@au-sensor.com)
  * @brief YAML configuration loader — parses system_info.yaml once in init()
  *        and serves all settings from in-memory cache thereafter.
- * @version 2.0
- * @date 2025-04-25
+ * @version 1.1
+ * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  */
