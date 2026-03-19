@@ -59,7 +59,7 @@ namespace au_4d_radar
 
         bool send_time_sync(uint8_t dev_id, uint32_t uniq_id);
 
-        PcanShortFrame& can_;   /* direct reference — no PcanFdTransfer indirection */
+        PcanShortFrame& can_short_;   /* direct reference — no PcanFdTransfer indirection */
         rclcpp::Logger  logger_;
         bool            quiet_ = false;
 

@@ -36,7 +36,7 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
                                              PcanShortFrame& can,
                                              rclcpp::Logger logger,
                                              bool quiet)
-    : can_(can)
+    : can_short_(can)
     , logger_(std::move(logger))
     , quiet_(quiet)
     , radar_node_(node)
@@ -44,11 +44,11 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 }
 
 /**
- * @brief can_ 이 PcanShortFrame& 이므로 set_rx_callback() 을 직접 호출한다.
+ * @brief can_short_ 이 PcanShortFrame& 이므로 set_rx_callback() 을 직접 호출한다.
  */
 void PcanShortFrameHandler::start(void)
 {
-    can_.set_rx_callback(
+    can_short_.set_rx_callback(
         [this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id,
                const std::vector<uint8_t>& data)
         {
@@ -61,7 +61,7 @@ void PcanShortFrameHandler::start(void)
  */
 void PcanShortFrameHandler::stop(void)
 {
-    can_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
+    can_short_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
 
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = AckCallback{};
@@ -266,7 +266,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
                      time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }
 
-    return can_.send_short_command_with_data(
+    return can_short_.send_short_command_with_data(
                dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
 }
 

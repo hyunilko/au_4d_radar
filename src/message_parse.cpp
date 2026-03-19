@@ -65,7 +65,7 @@ static TsPacketHeader parse_header(const uint8_t* p, uint32_t& idx_out)
     h.ts_nsec      = Conversion::le_to_u32(&p[i]); i += 4;
     h.frame_num    = Conversion::le_to_u32(&p[i]); i += 4;
     h.cycle_time   = Conversion::convertToFloat(&p[i]); i += 4;
-    h.total_points  = Conversion::le_to_u32(&p[i]); i += 4;
+    h.total_points = Conversion::le_to_u32(&p[i]); i += 4;
     h.point_num    = Conversion::le_to_u32(&p[i]); i += 4;
     h.total_pkts   = Conversion::le_to_u16(&p[i]); i += 2;
     h.pkt_num      = Conversion::le_to_u16(&p[i]); i += 2;
@@ -103,7 +103,7 @@ static bool validate_header(const TsPacketHeader& h,
 
 /**
  * @brief Formats a 32-bit UID as an 8-character lowercase hex string.
- *
+ *        A function that converts a uint32_t uid to an 8-digit lowercase hexadecimal string and returns it with leading zeros to fill in missing spaces.
  * @param uid Sensor unique identifier.
  * @return Hex string, e.g. "0a1b2c3d".
  */
@@ -262,11 +262,11 @@ void MessageParser::makeRadarScanMsg(uint8_t* p_buff,
     for (uint32_t i = 0u; i < header.point_num; ++i) {
         radar_msgs::msg::RadarReturn ret{};
         idx += 4u;  /* skip index field */
-        ret.range           = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.range            = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
         ret.doppler_velocity = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.azimuth         = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.elevation       = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.amplitude       = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.azimuth          = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.elevation        = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.amplitude        = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
         radar_scan_msg.returns.push_back(ret);
     }
 }

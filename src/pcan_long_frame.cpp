@@ -86,12 +86,12 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
     const uint32_t frame_count = tx_frame_count_[dev_id]++;
     const uint32_t payload_size = static_cast<uint32_t>(payload_len);
 
-    std::vector<uint8_t> app(static_cast<size_t>(payload_len) + APP_PDU_HEADER_LENGTH, 0u);
-    Conversion::u32_to_be(FRAME_MAGIC_BE, &app[0]);
-    Conversion::u32_to_be(frame_count, &app[4]);
-    Conversion::u32_to_be(msg_id, &app[8]);
-    Conversion::u32_to_be(payload_size, &app[12]);
-    std::memcpy(&app[APP_PDU_HEADER_LENGTH], payload, static_cast<size_t>(payload_len));
+    std::vector<uint8_t> buff(static_cast<size_t>(payload_len) + APP_PDU_HEADER_LENGTH, 0u);
+    Conversion::u32_to_be(FRAME_MAGIC_BE, &buff[0]);
+    Conversion::u32_to_be(frame_count, &buff[4]);
+    Conversion::u32_to_be(msg_id, &buff[8]);
+    Conversion::u32_to_be(payload_size, &buff[12]);
+    std::memcpy(&buff[APP_PDU_HEADER_LENGTH], payload, static_cast<size_t>(payload_len));
 
     const uint16_t can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
 
@@ -99,10 +99,10 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
     int32_t pos = 0;
     uint16_t seq = 0u;
 
-    while ((static_cast<int32_t>(app.size()) - pos) > static_cast<int32_t>(CHUNK_LENGTH)) {
+    while ((static_cast<int32_t>(buff.size()) - pos) > static_cast<int32_t>(CHUNK_LENGTH)) {
         frame[0] = static_cast<uint8_t>((seq >> 8) & HDR_SEQ_HIGH_MASK);
         frame[1] = static_cast<uint8_t>(seq & 0xFFu);
-        std::memcpy(&frame[2], &app[static_cast<size_t>(pos)], CHUNK_LENGTH);
+        std::memcpy(&frame[2], &buff[static_cast<size_t>(pos)], CHUNK_LENGTH);
 
         if (!pcan_.send_frame64(can_id, frame)) {
             return false;
@@ -112,7 +112,7 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
         seq = static_cast<uint16_t>((seq + 1u) % (MAX_SEQ + 1u));
     }
 
-    const int remain = static_cast<int>(app.size()) - pos;
+    const int remain = static_cast<int>(buff.size()) - pos;
     frame[0] = static_cast<uint8_t>(HDR_PBF_MASK | ((seq >> 8) & HDR_SEQ_HIGH_MASK));
     frame[1] = static_cast<uint8_t>(seq & 0xFFu);
 
@@ -121,7 +121,7 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
         std::memset(&frame[3], 0, CHUNK_LENGTH - 1u);
     } else {
         const int copy_n = (remain > static_cast<int>(CHUNK_LENGTH)) ? static_cast<int>(CHUNK_LENGTH) : remain;
-        std::memcpy(&frame[2], &app[static_cast<size_t>(pos)], static_cast<size_t>(copy_n));
+        std::memcpy(&frame[2], &buff[static_cast<size_t>(pos)], static_cast<size_t>(copy_n));
         if (copy_n < static_cast<int>(CHUNK_LENGTH)) {
             std::memset(&frame[2 + copy_n], 0, static_cast<size_t>(CHUNK_LENGTH - copy_n));
         }
@@ -222,7 +222,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     }
 
     const uint8_t* payload = &data[2];
-    const int avail = static_cast<int>(data_len) - 2;
+    const int avail = static_cast<int>(data_len) - 2; // data_len - header_len
     if (avail >= static_cast<int>(CHUNK_LENGTH)) {
         std::memcpy(st.buf.data() + st.len, payload, CHUNK_LENGTH);
     } else if (avail > 0) {

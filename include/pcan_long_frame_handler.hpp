@@ -70,8 +70,8 @@ namespace au_4d_radar
         /* Back-pointer to the owning ROS2 node */
         device_au_radar_node* radar_node_;
 
-        /* CAN Long Frame layer (direct reference, no PcanFdTransfer indirection) */
-        PcanLongFrame& can_;
+        /* CAN Long Frame layer */
+        PcanLongFrame& can_long_;
 
         /* Per-instance message parser */
         MessageParser message_parser_;
@@ -81,7 +81,7 @@ namespace au_4d_radar
         std::atomic<bool> client_threads_running_{false};
 
         /* --- configuration cached from YamlParser ----------------------- */
-        bool     point_cloud2_setting_{false};
+        bool     point_cloud2_enabled_{false};
         uint32_t message_number_{0u};
 
         /* --- receive → process pipeline --------------------------------- */

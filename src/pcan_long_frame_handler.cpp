@@ -33,7 +33,7 @@ namespace au_4d_radar {
 PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node,
                                            PcanLongFrame& can)
     : radar_node_(node)
-    , can_(can)
+    , can_long_(can)
     , message_parser_(node->get_logger())
 {
 }
@@ -54,10 +54,6 @@ PcanLongFrameHandler::~PcanLongFrameHandler()
  * @brief Registers the long-frame RX callback on PcanLongFrame and starts the
  *        process/client threads. Does NOT start the transport receive thread.
  *
- * @details start_rx()는 PcanShortFrameHandler::start() 이후
- *          au_4d_radar.cpp 에서 can_fd_transfer_.start_rx() 로 명시적으로
- *          호출해야 한다. 이렇게 해야 Short / Long 콜백이 모두 등록된 뒤
- *          수신 스레드가 시작되어 첫 HEART_BEAT 를 안전하게 처리할 수 있다.
  */
 void PcanLongFrameHandler::start()
 {
@@ -70,8 +66,6 @@ void PcanLongFrameHandler::start()
     process_thread_running_.store(true);
     client_threads_running_.store(true);
 
-    /* 수신 루프는 PcanFdTransfer::start_rx() 로 외부에서 시작
-     * (au_4d_radar.cpp 에서 can_short_handler_.start() 이후에 호출) */
     process_thread_ = std::thread(&PcanLongFrameHandler::processThread, this);
 }
 
@@ -110,8 +104,7 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    /* 등록한 RX 콜백만 해제 — stop_rx / shutdown 은 PcanFdTransfer 소멸자에서 처리 */
-    can_.set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
+    can_long_.set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
 }
 
 /**
@@ -126,7 +119,7 @@ void PcanLongFrameHandler::stop()
 int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                        const uint8_t* payload, int payload_len)
 {
-    return can_.send_long_payload(device_id, msg_id, payload, payload_len)
+    return can_long_.send_long_payload(device_id, msg_id, payload, payload_len)
            ? payload_len
            : -1;
 }
@@ -149,19 +142,19 @@ std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
 /**
  * @brief Registers the long-frame RX callback directly on PcanLongFrame.
  *
- * @details can_ 이 이미 PcanLongFrame& 이므로 set_rx_callback() 을 직접 호출한다.
+ * @details can_long_ 이 이미 PcanLongFrame& 이므로 set_rx_callback() 을 직접 호출한다.
  *
  * @return true always (PCAN init 은 PcanFdTransfer::start() 에서 담당).
  */
 bool PcanLongFrameHandler::initialize()
 {
-    point_cloud2_setting_ = YamlParser::getPointCloud2Setting();
+    point_cloud2_enabled_ = YamlParser::getPointCloud2Setting();
     message_number_       = YamlParser::getMessageNumber();
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
-    /* can_ 이 PcanLongFrame& 이므로 직접 set_rx_callback() 호출 */
-    can_.set_rx_callback(
+    /* can_long_ 이 PcanLongFrame& 이므로 직접 set_rx_callback() 호출 */
+    can_long_.set_rx_callback(
         [this](uint8_t  /*dev_id*/,
                uint32_t /*frame_id*/,
                uint32_t /*frame_count*/,
@@ -319,7 +312,7 @@ void PcanLongFrameHandler::clientThread(uint32_t unique_id)
         switch (static_cast<HeaderType>(msg_type)) {
             case HeaderType::SCAN:
                 handleScanMessage(buffer, radar_scan_msg);
-                if (point_cloud2_setting_) {
+                if (point_cloud2_enabled_) {
                     handlePointCloud2Message(buffer, radar_cloud_msg,
                                              radar_cloud_buffer);
                 }
@@ -377,7 +370,7 @@ void PcanLongFrameHandler::handleScanMessage(
  * ========================================================================= */
 
 /**
- * @brief Parses a SCAN payload for PointCloud2 and publishes on a 10 ms time-sync boundary.
+ * @brief Parses a SCAN payload for PointCloud2 and publishes on a 50 ms time-sync boundary.
  *
  * @param buffer             Raw payload buffer.
  * @param radar_cloud_msg    Per-packet cloud data; cleared after assembly.
@@ -481,9 +474,9 @@ void PcanLongFrameHandler::mergePointCloud(
 }
 
 /**
- * @brief Detects a new 10 ms time-sync window by comparing with the previous value.
+ * @brief Detects a new 50 ms time-sync window by comparing with the previous value.
  *
- * @param time_sync_cloud Current value (nanosec / 10,000,000).
+ * @param time_sync_cloud Current value (nanosec / 50,000,000).
  * @return true if the value changed since the last call, false if unchanged.
  */
 bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud)
