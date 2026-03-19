@@ -13,6 +13,7 @@
 
 #include "pcan_short_frame_handler.hpp"
 #include "pcan_long_frame_handler.hpp"
+#include "pcan_fd_transfer.hpp"
 #include "adm_tf_listener.hpp"
 
 namespace au_4d_radar

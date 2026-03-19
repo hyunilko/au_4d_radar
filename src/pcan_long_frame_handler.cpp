@@ -17,7 +17,6 @@
 #include "util/conversion.hpp"
 #include "util/yamlParser.hpp"
 #include "pcan_long_frame_handler.hpp"
-#include "pcan_fd_transfer.hpp"
 
 namespace au_4d_radar {
 
@@ -29,10 +28,10 @@ namespace au_4d_radar {
  * @brief Constructs a PcanLongFrameHandler.
  *
  * @param node Pointer to the owning radar node (for publishing and logging).
- * @param can  Reference to the transport layer.
+ * @param can  Reference to the PcanLongFrame layer (direct, no PcanFdTransfer indirection).
  */
 PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node,
-                                           PcanFdTransfer& can)
+                                           PcanLongFrame& can)
     : radar_node_(node)
     , can_(can)
     , message_parser_(node->get_logger())
@@ -77,17 +76,18 @@ void PcanLongFrameHandler::start()
 }
 
 /**
- * @brief Signals all threads to exit, joins them, and shuts down the CAN interface.
+ * @brief Signals all threads to exit and joins them.
+ *
+ * @details stop_rx() / shutdown() 은 PcanFdTransfer 소멸자가 담당한다.
+ *          이 핸들러는 자신이 등록한 RX 콜백만 해제한다.
  */
 void PcanLongFrameHandler::stop()
 {
     process_thread_running_.store(false);
     client_threads_running_.store(false);
 
-    /* Wake the process thread */
     queue_cv_.notify_all();
 
-    /* Wake all client threads — uses client_queue_mutex_ consistently */
     {
         std::lock_guard<std::mutex> lk(client_queue_mutex_);
         for (auto& kv : client_queue_cvs_) {
@@ -110,10 +110,8 @@ void PcanLongFrameHandler::stop()
         client_queue_cvs_.clear();
     }
 
-    /* 수신 스레드 정지 → Long RX 콜백 해제 → 채널 닫기 */
-    can_.stop_rx();
-    can_.long_frame().set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
-    can_.shutdown();
+    /* 등록한 RX 콜백만 해제 — stop_rx / shutdown 은 PcanFdTransfer 소멸자에서 처리 */
+    can_.set_rx_callback(PcanLongFrame::LongFrameRxCallback{});
 }
 
 /**
@@ -128,7 +126,7 @@ void PcanLongFrameHandler::stop()
 int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                        const uint8_t* payload, int payload_len)
 {
-    return can_.long_frame().send_long_payload(device_id, msg_id, payload, payload_len)
+    return can_.send_long_payload(device_id, msg_id, payload, payload_len)
            ? payload_len
            : -1;
 }
@@ -149,14 +147,11 @@ std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
  * ========================================================================= */
 
 /**
- * @brief Opens the PCAN channel and registers the long-frame RX callback directly
- *        on PcanLongFrame (transport 레이어를 경유하지 않음).
+ * @brief Registers the long-frame RX callback directly on PcanLongFrame.
  *
- * @details Reads YAML settings, calls can_.init(), then registers the lambda
- *          directly via can_.long_frame().set_rx_callback() so that the call path
- *          follows: PcanFdTransfer → PcanLongFrame → PcanLongFrameHandler.
+ * @details can_ 이 이미 PcanLongFrame& 이므로 set_rx_callback() 을 직접 호출한다.
  *
- * @return true on success, false if PCAN init fails.
+ * @return true always (PCAN init 은 PcanFdTransfer::start() 에서 담당).
  */
 bool PcanLongFrameHandler::initialize()
 {
@@ -165,8 +160,8 @@ bool PcanLongFrameHandler::initialize()
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");
 
-    /* PcanFdTransfer 래퍼를 거치지 않고 PcanLongFrame 에 직접 콜백 등록 */
-    can_.long_frame().set_rx_callback(
+    /* can_ 이 PcanLongFrame& 이므로 직접 set_rx_callback() 호출 */
+    can_.set_rx_callback(
         [this](uint8_t  /*dev_id*/,
                uint32_t /*frame_id*/,
                uint32_t /*frame_count*/,

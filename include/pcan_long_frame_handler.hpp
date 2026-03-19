@@ -13,8 +13,7 @@
 #include <vector>
 
 #include "message_parse.hpp"   /* MessageParser, HeaderType */
-
-class PcanFdTransfer;
+#include "pcan_long_frame.hpp"
 
 namespace au_4d_radar
 {
@@ -23,7 +22,7 @@ namespace au_4d_radar
     class PcanLongFrameHandler
     {
     public:
-        explicit PcanLongFrameHandler(device_au_radar_node* node, PcanFdTransfer& can);
+        explicit PcanLongFrameHandler(device_au_radar_node* node, PcanLongFrame& can);
         ~PcanLongFrameHandler();
 
         void start();
@@ -71,8 +70,8 @@ namespace au_4d_radar
         /* Back-pointer to the owning ROS2 node */
         device_au_radar_node* radar_node_;
 
-        /* CAN transport (shared with the node) */
-        PcanFdTransfer& can_;
+        /* CAN Long Frame layer (direct reference, no PcanFdTransfer indirection) */
+        PcanLongFrame& can_;
 
         /* Per-instance message parser */
         MessageParser message_parser_;

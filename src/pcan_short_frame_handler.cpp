@@ -28,12 +28,12 @@ namespace au_4d_radar
  * @brief Constructs a PcanShortFrameHandler.
  *
  * @param node   Pointer to the owning radar node (for publishing and logging).
- * @param can    Reference to the transport layer.
+ * @param can    Reference to PcanShortFrame (direct, no PcanFdTransfer indirection).
  * @param logger ROS2 logger; defaults to "PcanShortFrameHandler".
  * @param quiet  If true, suppresses INFO/DEBUG log output.
  */
 PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
-                                             PcanFdTransfer& can,
+                                             PcanShortFrame& can,
                                              rclcpp::Logger logger,
                                              bool quiet)
     : can_(can)
@@ -44,18 +44,11 @@ PcanShortFrameHandler::PcanShortFrameHandler(device_au_radar_node* node,
 }
 
 /**
- * @brief PcanShortFrame 에 직접 RX 콜백을 등록한다 (PcanFdTransfer 래퍼 불경유).
- *
- * @details 콜백 등록 경로:
- *          PcanShortFrameHandler::start()
- *              → can_.short_frame().set_rx_callback()   ← PcanShortFrame 직접
- *                  ← PcanFdTransfer::receiveThread() → poll_rx()
- *                      → PcanShortFrame::handle_short_can_frame() → rx_cb_()
- *                          → PcanShortFrameHandler::handle_short_frame()
+ * @brief can_ 이 PcanShortFrame& 이므로 set_rx_callback() 을 직접 호출한다.
  */
 void PcanShortFrameHandler::start(void)
 {
-    can_.short_frame().set_rx_callback(
+    can_.set_rx_callback(
         [this](uint8_t dev_id, ShortCanCmd cmd, uint32_t uniq_id,
                const std::vector<uint8_t>& data)
         {
@@ -68,7 +61,7 @@ void PcanShortFrameHandler::start(void)
  */
 void PcanShortFrameHandler::stop(void)
 {
-    can_.short_frame().set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
+    can_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
 
     std::lock_guard<std::mutex> lk(mtx_);
     ack_cb_ = AckCallback{};
@@ -273,7 +266,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
                      time_str, dev_id, Conversion::swap_endian32(uniq_id));
     }
 
-    return can_.short_frame().send_short_command_with_data(
+    return can_.send_short_command_with_data(
                dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
 }
 
