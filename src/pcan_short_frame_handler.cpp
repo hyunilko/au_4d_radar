@@ -1,7 +1,7 @@
 /**
  * @file pcan_short_frame_handler.cpp
  * @author antonioko@au-sensor.com
- * @brief High-level short-frame handler: ACK tracking, unique-ID cache, and time-sync.
+ * @brief High-level short-frame handler
  * @version 1.0
  * @date 2026-03
  *
