@@ -30,7 +30,7 @@ static constexpr uint16_t CHUNK_LENGTH      = 62u;    /* 64 - 2 header */
 
 /* App-PDU header */
 static constexpr uint32_t FRAME_MAGIC_BE        = 0x12345678u;
-static constexpr uint32_t APP_PDU_HEADER_LENGTH = 16u;
+static constexpr uint32_t APP_PDU_HD_LEN = 16u;
 
 /**
  * @brief Constructs a PcanLongFrame and allocates per-device RX reassembly buffers.
@@ -86,12 +86,12 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
     const uint32_t frame_count = tx_frame_count_[dev_id]++;
     const uint32_t payload_size = static_cast<uint32_t>(payload_len);
 
-    std::vector<uint8_t> buff(static_cast<size_t>(payload_len) + APP_PDU_HEADER_LENGTH, 0u);
+    std::vector<uint8_t> buff(static_cast<size_t>(payload_len) + APP_PDU_HD_LEN, 0u);
     Conversion::u32_to_be(FRAME_MAGIC_BE, &buff[0]);
     Conversion::u32_to_be(frame_count, &buff[4]);
     Conversion::u32_to_be(msg_id, &buff[8]);
     Conversion::u32_to_be(payload_size, &buff[12]);
-    std::memcpy(&buff[APP_PDU_HEADER_LENGTH], payload, static_cast<size_t>(payload_len));
+    std::memcpy(&buff[APP_PDU_HD_LEN], payload, static_cast<size_t>(payload_len));
 
     const uint16_t can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
 
@@ -238,7 +238,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
         return;
     }
 
-    if (st.len < APP_PDU_HEADER_LENGTH) {
+    if (st.len < APP_PDU_HD_LEN) {
         st.reset();
         RCLCPP_ERROR(rclcpp::get_logger("PcanLongFrame"), "Long TP short AppPDU dev=%u", dev_id);
         return;
@@ -248,7 +248,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     const uint32_t frame_count = Conversion::be_to_u32(&st.buf[4]);
     const uint32_t msg_id = Conversion::be_to_u32(&st.buf[8]);
     const uint32_t payload_len = Conversion::be_to_u32(&st.buf[12]);
-    const uint64_t needed = APP_PDU_HEADER_LENGTH + static_cast<uint64_t>(payload_len);
+    const uint64_t needed = APP_PDU_HD_LEN + static_cast<uint64_t>(payload_len);
 
     if (frame_id != FRAME_MAGIC_BE) {
         if (!cfg_.quiet) {
@@ -272,7 +272,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
 
     std::vector<uint8_t> payload_out(payload_len, 0u);
     if (payload_len > 0u) {
-        std::memcpy(payload_out.data(), &st.buf[APP_PDU_HEADER_LENGTH], payload_len);
+        std::memcpy(payload_out.data(), &st.buf[APP_PDU_HD_LEN], payload_len);
     }
 
     if (rx_cb_) {
