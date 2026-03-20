@@ -133,7 +133,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
     Conversion::u64_to_be(server_ns, payload);
 
     if (!quiet_) {
-        char     time_str[64] = {0};
+        char time_str[64] = {0};
         struct tm tm_info{};
         const time_t sec = static_cast<time_t>(ts.tv_sec);
         gmtime_r(&sec, &tm_info);

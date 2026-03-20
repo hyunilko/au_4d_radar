@@ -13,8 +13,6 @@
  *          Bytes 08+  : Payload     (up to 56 bytes)
  */
 
-#include "pcan_short_frame.hpp"
-
 #include <cstring>
 #include <ctime>
 #include <utility>
@@ -22,6 +20,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "pcan_fd_transport.hpp"
 #include "util/conversion.hpp"
+
+#include "pcan_short_frame.hpp"
 
 static constexpr uint8_t CMD_FIELD_LEN    = 4u;   /* CMD(4B BE) */
 static constexpr uint8_t UNIQ_ID_LEN      = 4u;   /* unique ID(4B BE) */

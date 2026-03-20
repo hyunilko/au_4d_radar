@@ -104,7 +104,7 @@ namespace au_4d_radar
         sensor_msgs::msg::PointCloud2 radar_cloud_msgs_;
         std::mutex publish_mutex_;
         std::mutex parse_mutex_;
-        uint8_t    time_sync_pre_cloud_{0u};
+        uint32_t    time_sync_pre_cloud_{0u};
     };
 
 } // namespace au_4d_radar

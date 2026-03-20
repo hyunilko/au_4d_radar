@@ -13,14 +13,14 @@
  *          Reassembled payloads are delivered via a LongFrameRxCallback.
  */
 
-#include "pcan_long_frame.hpp"
-
 #include <cstring>
 #include <utility>
 
 #include "rclcpp/rclcpp.hpp"
 #include "util/conversion.hpp"
 #include "pcan_fd_transport.hpp"
+
+#include "pcan_long_frame.hpp"
 
 /* CustomTP wire format constants */
 static constexpr uint8_t  HDR_PBF_MASK      = 0x80u;  /* bit7: 1=LAST, 0=MIDDLE */

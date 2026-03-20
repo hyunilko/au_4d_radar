@@ -119,9 +119,7 @@ void PcanLongFrameHandler::stop()
 int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
                                        const uint8_t* payload, int payload_len)
 {
-    return can_long_.send_long_payload(device_id, msg_id, payload, payload_len)
-           ? payload_len
-           : -1;
+    return can_long_.send_long_payload(device_id, msg_id, payload, payload_len) ? payload_len : -1;
 }
 
 /* =========================================================================
@@ -246,8 +244,7 @@ void PcanLongFrameHandler::processThread()
                 }
                 client_threads_.emplace(
                     unique_id,
-                    std::thread(&PcanLongFrameHandler::clientThread,
-                                this, unique_id));
+                    std::thread(&PcanLongFrameHandler::clientThread, this, unique_id));
             }
         }
 
@@ -285,8 +282,7 @@ void PcanLongFrameHandler::clientThread(uint32_t unique_id)
         {
             std::unique_lock<std::mutex> lk(client_queue_mutex_);
             client_queue_cvs_[unique_id].wait(lk, [this, unique_id] {
-                return !client_message_queues_[unique_id].empty()
-                       || !client_threads_running_.load();
+                return !client_message_queues_[unique_id].empty() || !client_threads_running_.load();
             });
 
             if (!client_threads_running_.load()) {
@@ -303,8 +299,7 @@ void PcanLongFrameHandler::clientThread(uint32_t unique_id)
             case HeaderType::SCAN:
                 handleScanMessage(buffer, radar_scan_msg);
                 if (point_cloud2_enabled_) {
-                    handlePointCloud2Message(buffer, radar_cloud_msg,
-                                             radar_cloud_buffer);
+                    handlePointCloud2Message(buffer, radar_cloud_msg, radar_cloud_buffer);
                 }
                 break;
 
@@ -337,8 +332,7 @@ void PcanLongFrameHandler::handleScanMessage(
     bool complete = false;
     {
         std::lock_guard<std::mutex> lk(parse_mutex_);
-        message_parser_.parseRadarScanMsg(
-            &buffer[kMsgTypeOffset], radar_scan_msg, complete);
+        message_parser_.parseRadarScanMsg(&buffer[kMsgTypeOffset], radar_scan_msg, complete);
     }
 
     if (complete) {
@@ -374,8 +368,7 @@ void PcanLongFrameHandler::handlePointCloud2Message(
     bool complete = false;
     {
         std::lock_guard<std::mutex> lk(parse_mutex_);
-        message_parser_.parsePointCloud2Msg(
-            &buffer[kMsgTypeOffset], radar_cloud_msg, complete);
+        message_parser_.parsePointCloud2Msg(&buffer[kMsgTypeOffset], radar_cloud_msg, complete);
     }
 
     if (!complete) {
@@ -387,13 +380,12 @@ void PcanLongFrameHandler::handlePointCloud2Message(
     sensor_msgs::msg::PointCloud2 assembled;
     assemblePointCloud(radar_cloud_buffer, radar_cloud_msg, assembled);
 
-    const uint32_t time_sync =
-        radar_cloud_msg.header.stamp.nanosec / 10000000u;
+    const uint32_t time_sync = radar_cloud_msg.header.stamp.nanosec / 10000000u;
 
     if (isNewTimeSync(time_sync)) {
         radar_node_->publishRadarPointCloud2(radar_cloud_msgs_);
         radar_cloud_msgs_.data.clear();
-        radar_cloud_msgs_              = std::move(assembled);
+        radar_cloud_msgs_ = std::move(assembled);
         radar_cloud_msgs_.header.frame_id = "RADARS";
     } else {
         mergePointCloud(assembled, radar_cloud_msgs_);
@@ -428,13 +420,13 @@ void PcanLongFrameHandler::assemblePointCloud(
         buffer.pop_front();
     }
 
-    out.width       = 0u;
-    out.height      = 1u;
-    out.is_dense    = true;
+    out.width        = 0u;
+    out.height       = 1u;
+    out.is_dense     = true;
     out.is_bigendian = false;
-    out.point_step  = msg.point_step;
-    out.fields      = msg.fields;
-    out.header      = msg.header;
+    out.point_step   = msg.point_step;
+    out.fields       = msg.fields;
+    out.header       = msg.header;
     out.data.clear();
 
     for (const auto& src : buffer) {
@@ -472,7 +464,7 @@ void PcanLongFrameHandler::mergePointCloud(
 bool PcanLongFrameHandler::isNewTimeSync(uint32_t time_sync_cloud)
 {
     const bool is_new = (time_sync_pre_cloud_ != time_sync_cloud);
-    time_sync_pre_cloud_ = static_cast<uint8_t>(time_sync_cloud);
+    time_sync_pre_cloud_ = time_sync_cloud;
     return is_new;
 }
 
@@ -495,8 +487,7 @@ void PcanLongFrameHandler::handleRadarTrackMessage(
     bool complete = false;
     {
         std::lock_guard<std::mutex> lk(parse_mutex_);
-        message_parser_.parseRadarTrackMsg(
-            &buffer[kMsgTypeOffset], radar_tracks_msg, complete);
+        message_parser_.parseRadarTrackMsg(&buffer[kMsgTypeOffset], radar_tracks_msg, complete);
     }
     if (complete) {
         std::lock_guard<std::mutex> lk(publish_mutex_);

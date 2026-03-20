@@ -45,8 +45,8 @@ $ git clone -b v2.0 https://github.com/auradar/mon_msgs.git
 
 ```yaml
 radars:
-  27c06058: FRONT RIGHT
-  0b089dfa: REAR LEFT
+  27c06058: RADAR_FRONT
+  0b089dfa: RADAR_LEFT
 ```
 
 **Compile**:
@@ -99,35 +99,6 @@ ros2 component load /ComponentManager au_4d_radar au_4d_radar::Listener
 ## Package Install
 
 > When you first install the RADAR ROS2 driver on your host, you will need to install the following packages:
-
-### Install FlatBuffers:
-
-**1. Download the FlatBuffers**
-
-```bash
-export VERSION=v25.2.10
-git clone https://github.com/google/flatbuffers.git flatbuffers_$VERSION
-cd flatbuffers_$VERSION
-git checkout $VERSION
-git submodule update --init --recursive
-```
-
-**2. Build and install the FlatBuffers**
-
-```cmake
-mkdir build
-cd build
-
-# Configure to build both static and shared libraries
-cmake .. -DCMAKE_BUILD_TYPE=Release \
-      -DFLATBUFFERS_STATIC_FLATC=ON \
-      -DFLATBUFFERS_BUILD_SHAREDLIB=OFF \
-      -DFLATBUFFERS_BUILD_CPP17=ON \
-      -DCMAKE_INSTALL_PREFIX=/usr/local
-
-make -j$(nproc)
-sudo make install
-```
 
 ### Install xacro:
 

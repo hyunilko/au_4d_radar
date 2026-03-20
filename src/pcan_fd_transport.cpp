@@ -72,8 +72,7 @@ bool PcanFdTransport::init(void)
     }
 
     std::lock_guard<std::mutex> lk(io_mtx_);
-    const TPCANStatus st =
-        CAN_InitializeFD(cfg_.handle, const_cast<TPCANBitrateFD>(cfg_.bitrate_fd));
+    const TPCANStatus st = CAN_InitializeFD(cfg_.handle, const_cast<TPCANBitrateFD>(cfg_.bitrate_fd));
     if (st != PCAN_ERROR_OK) {
         print_pcan_err("CAN_InitializeFD failed", st);
         return false;
