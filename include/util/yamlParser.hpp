@@ -25,7 +25,7 @@ public:
     static void init();
 
     /* Cached scalar settings — O(1), no file I/O after init() */
-    static bool        getPointCloud2Setting();
+    static bool        getPointCloud2Enabled();
     static uint32_t    getMessageNumber();
     static std::string getHostname();
 

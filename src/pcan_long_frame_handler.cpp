@@ -1,7 +1,7 @@
 /**
  * @file pcan_long_frame_handler.cpp
  * @author Antonio Ko (antonioko@au-sensor.com)
- * @brief Long CAN frame receive/dispatch handler.
+ * @brief Long CAN frame receive/dispatch handler. Business logic
  * @version 1.0
  * @date 2026-03
  *
@@ -52,7 +52,7 @@ PcanLongFrameHandler::~PcanLongFrameHandler()
 
 /**
  * @brief Registers the long-frame RX callback on PcanLongFrame and starts the
- *        process/client threads. Does NOT start the transport receive thread.
+ *        process/client threads.
  *
  */
 void PcanLongFrameHandler::start()
@@ -124,17 +124,6 @@ int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
            : -1;
 }
 
-/**
- * @brief Returns the human-readable frame ID name for a given radar unique ID.
- *
- * @param radar_id 32-bit sensor unique identifier.
- * @return Frame ID string from system_info.yaml, or empty string if not found.
- */
-std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
-{
-    return YamlParser::getFrameIdName(radar_id);
-}
-
 /* =========================================================================
  * Private — initialization
  * ========================================================================= */
@@ -149,7 +138,7 @@ std::string PcanLongFrameHandler::getRadarName(uint32_t radar_id)
  */
 bool PcanLongFrameHandler::initialize()
 {
-    point_cloud2_enabled_ = YamlParser::getPointCloud2Setting();
+    point_cloud2_enabled_ = YamlParser::getPointCloud2Enabled();
     message_number_       = YamlParser::getMessageNumber();
 
     RCLCPP_DEBUG(radar_node_->get_logger(), "PcanLongFrameHandler::initialize()");

@@ -29,7 +29,6 @@ namespace au_4d_radar
         void stop();
 
         int sendMessages(uint8_t device_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
-        std::string getRadarName(uint32_t radar_id);
 
     private:
         /* ----- lifecycle ------------------------------------------------- */

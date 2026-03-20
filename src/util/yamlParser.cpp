@@ -57,7 +57,7 @@ void YamlParser::init()
     }
 
     /* --- radar map -------------------------------------------------------- */
-    std::unordered_map<uint32_t, RadarInfo> tmp;
+    std::unordered_map<uint32_t, RadarInfo> radarsInfo;
 
     if (!config["radars"]) {
         RCLCPP_ERROR(rclcpp::get_logger("YamlParser"),
@@ -112,17 +112,17 @@ void YamlParser::init()
                          radar_id, info.frame_id.c_str(),
                          info.roll, info.pitch, info.yaw);
 
-            tmp[radar_id] = info;
+            radarsInfo[radar_id] = info;
         }
     }
 
     std::lock_guard<std::recursive_mutex> lk(radar_map_mutex_);
-    radarsMap_ = std::move(tmp);
+    radarsMap_ = std::move(radarsInfo);
 }
 
 /* ---------- cached scalar getters ---------------------------------------- */
 
-bool YamlParser::getPointCloud2Setting()
+bool YamlParser::getPointCloud2Enabled()
 {
     return appConfig_.point_cloud2;
 }

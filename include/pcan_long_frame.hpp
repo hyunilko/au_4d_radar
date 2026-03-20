@@ -5,6 +5,7 @@
  * @brief   long CAN Frame Handler (PC side)
  *
  * @details
+ * CustomTP reassembler/transmitter for large CAN-FD payloads.
  * long frame CAN ID map :
  *   PC  -> S32: tx_base_id + dev_id  (ex: 0x500 + dev)
  *   S32 -> PC : rx_base_id + dev_id  (ex: 0x550 + dev)
@@ -34,7 +35,7 @@ public:
 
     using Config = PcanLongFrameConfig;
 
-    explicit PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
+    explicit PcanLongFrame(PcanFdTransfer& transport, const Config& cfg = Config{});
 
     bool send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
     bool handle_long_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
@@ -62,7 +63,7 @@ private:
     void process_long_tp_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
 private:
-    PcanFdTransfer& pcan_;
+    PcanFdTransfer& transport_;
     Config cfg_;
     LongFrameRxCallback rx_cb_;
     std::vector<RxState> rx_states_;

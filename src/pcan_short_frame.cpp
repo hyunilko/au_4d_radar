@@ -30,11 +30,11 @@ static constexpr uint8_t SHORT_MAX_BYTES  = 56u;  /* 64B - CMD(4B) - unique ID(4
 /**
  * @brief Constructs a PcanShortFrame storing the transport reference and config.
  *
- * @param pcan Reference to the transport layer used for sending frames.
+ * @param transport Reference to the transport layer used for sending frames.
  * @param cfg  Short-frame configuration (TX/RX base IDs, device count).
  */
-PcanShortFrame::PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg)
-    : pcan_(pcan)
+PcanShortFrame::PcanShortFrame(PcanFdTransfer& transport, const Config& cfg)
+    : transport_(transport)
     , cfg_(cfg)
 {
 }
@@ -122,7 +122,7 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
     const uint16_t can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
     const uint8_t total_len = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN + payload_len);
 
-    const bool ok = pcan_.send_data(can_id, frame, total_len);
+    const bool ok = transport_.send_data(can_id, frame, total_len);
     if (!ok && !cfg_.quiet) {
         RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
                      "send_short_command_with_data: send_data failed (dev=%u, cmd=0x%08X)",

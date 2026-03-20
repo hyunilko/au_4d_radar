@@ -45,10 +45,9 @@ void AdmTFListener::lookupTransform() {
     try {
         std::vector<std::string> radar_links = {
             "RADAR_FRONT",
-            "RADAR_FRONT_RIGHT",
-            "RADAR_FRONT_LEFT",
-            "RADAR_REAR_RIGHT",
-            "RADAR_REAR_LEFT"
+            "RADAR_RIGHT",
+            "RADAR_REAR",
+            "RADAR_LEFT"
         };
 
         std::vector<std::string> available_frames = tf_buffer_->getAllFrameNames();

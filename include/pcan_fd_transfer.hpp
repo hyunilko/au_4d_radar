@@ -22,10 +22,6 @@ extern "C" {
  *   - Drive the receive loop (start_rx / stop_rx / receiveThread)
  *   - Route received frames to PcanShortFrame / PcanLongFrame (poll_rx)
  *
- * Out of scope (handled by upper layers):
- *   - CustomTP segment segmentation / reassembly → PcanLongFrame
- *   - Short command packing / parsing            → PcanShortFrame
- *   - Business logic                             → Handler classes
  */
 class PcanFdTransfer
 {
@@ -44,7 +40,7 @@ public:
         /* Long(CustomTP) frame config: CAN IDs, device count, rx buf size, quiet */
         PcanLongFrameConfig  long_frame{};
 
-        /* Short frame config: CAN IDs, device count, quiet */
+        /* Short(Command) frame config: CAN IDs, device count, quiet */
         PcanShortFrameConfig short_frame{};
     };
 
@@ -87,19 +83,26 @@ public:
      */
     PcanShortFrame& short_frame();
 
-private:
-    friend class PcanShortFrame;
-    friend class PcanLongFrame;
+    /* ----- Raw CAN FD frame I/O -------------------------------------------- */
+    /**
+     * @brief Sends a CAN-FD frame with a variable-length payload (up to 64 bytes).
+     *        Called by PcanShortFrame to transmit short commands.
+     */
+    bool send_data(uint16_t can_id, const uint8_t* data, uint8_t length);
 
-    /* ----- Raw hardware I/O ------------------------------------------------ */
+    /**
+     * @brief Sends a fixed 64-byte CAN-FD frame (DLC = 15).
+     *        Called by PcanLongFrame to transmit CustomTP chunks.
+     */
+    bool send_frame64(uint16_t can_id, const uint8_t data64[64]);
+
+private:
+    /* ----- Internal hardware helpers --------------------------------------- */
     static uint8_t len_to_dlc(uint8_t len);
     static uint8_t dlc_to_len(uint8_t dlc);
     static void    print_pcan_err(const char* tag, TPCANStatus st);
 
-    bool send_data(uint16_t can_id, const uint8_t* data, uint8_t length);
-    bool send_frame64(uint16_t can_id, const uint8_t data64[64]);
-
-    /* ----- Internal receive loop implementation --------------------------- */
+    /* ----- Internal receive loop ------------------------------------------ */
     void poll_rx(void);
     void receiveThread(void);
 

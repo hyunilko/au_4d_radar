@@ -35,11 +35,11 @@ static constexpr uint32_t APP_PDU_HEADER_LENGTH = 16u;
 /**
  * @brief Constructs a PcanLongFrame and allocates per-device RX reassembly buffers.
  *
- * @param pcan Reference to the transport layer used for TX.
+ * @param transport Reference to the transport layer used for TX.
  * @param cfg  Long-frame configuration (CAN IDs, device count, RX buffer size).
  */
-PcanLongFrame::PcanLongFrame(PcanFdTransfer& pcan, const Config& cfg)
-    : pcan_(pcan)
+PcanLongFrame::PcanLongFrame(PcanFdTransfer& transport, const Config& cfg)
+    : transport_(transport)
     , cfg_(cfg)
 {
     rx_states_.reserve(cfg_.device_count);
@@ -76,7 +76,7 @@ void PcanLongFrame::set_rx_callback(LongFrameRxCallback cb)
  */
 bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len)
 {
-    if (!pcan_.initialized_ || payload == nullptr || payload_len <= 0) {
+    if (payload == nullptr || payload_len <= 0) {
         return false;
     }
     if (dev_id >= cfg_.device_count) {
@@ -104,7 +104,7 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
         frame[1] = static_cast<uint8_t>(seq & 0xFFu);
         std::memcpy(&frame[2], &buff[static_cast<size_t>(pos)], CHUNK_LENGTH);
 
-        if (!pcan_.send_frame64(can_id, frame)) {
+        if (!transport_.send_frame64(can_id, frame)) {
             return false;
         }
 
@@ -127,7 +127,7 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
         }
     }
 
-    return pcan_.send_frame64(can_id, frame);
+    return transport_.send_frame64(can_id, frame);
 }
 
 /**

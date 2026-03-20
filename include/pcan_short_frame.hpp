@@ -5,7 +5,7 @@
  * @brief   Short CAN Frame Handler (PC side)
  *
  * @details
- * Single CAN FD frame command/response processor.
+ * Single CAN FD frame command/response processor(packing / parsing).
  * Wire format :
  *   TX (PC -> S32): [CMD(4B, BE)][DATA ...]
  *   RX (S32 -> PC): [CMD(4B, BE)][UNIQ_ID(4B, BE)][EXTRA_DATA ...]
@@ -50,7 +50,7 @@ public:
 
     using Config = PcanShortFrameConfig;
 
-    explicit PcanShortFrame(PcanFdTransfer& pcan, const Config& cfg = Config{});
+    explicit PcanShortFrame(PcanFdTransfer& transport, const Config& cfg = Config{});
 
     bool send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd);
     bool send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd rcv_cmd);
@@ -65,7 +65,7 @@ private:
     void process_short_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
 private:
-    PcanFdTransfer& pcan_;
+    PcanFdTransfer& transport_;
     Config cfg_;
     ShortFrameRxCallback rx_cb_;
     std::mutex mtx_;
