@@ -28,7 +28,7 @@ namespace au_4d_radar {
  * @brief Constructs a PcanLongFrameHandler.
  *
  * @param node Pointer to the owning radar node (for publishing and logging).
- * @param can  Reference to the PcanLongFrame layer (direct, no PcanFdTransfer indirection).
+ * @param can  Reference to the PcanLongFrame layer (direct, no PcanFdTransport indirection).
  */
 PcanLongFrameHandler::PcanLongFrameHandler(device_au_radar_node* node,
                                            PcanLongFrame& can)
@@ -72,7 +72,7 @@ void PcanLongFrameHandler::start()
 /**
  * @brief Signals all threads to exit and joins them.
  *
- * @details stop_rx() / shutdown() are handled by the PcanFdTransfer destructor.
+ * @details stop_rx() / shutdown() are handled by the PcanFdTransport destructor.
  *          This handler only deregisters the RX callback it registered.
  */
 void PcanLongFrameHandler::stop()
@@ -134,7 +134,7 @@ int PcanLongFrameHandler::sendMessages(uint8_t device_id, uint32_t msg_id,
  * @details Since can_long_ is already a PcanLongFrame& reference, set_rx_callback()
  *          is called directly on it.
  *
- * @return true always (PCAN hardware init is handled by PcanFdTransfer::start()).
+ * @return true always (PCAN hardware init is handled by PcanFdTransport::start()).
  */
 bool PcanLongFrameHandler::initialize()
 {

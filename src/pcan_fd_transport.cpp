@@ -1,5 +1,5 @@
 /**
- * @file pcan_fd_transfer.cpp
+ * @file pcan_fd_transport.cpp
  * @author antonioko@au-sensor.com
  * @brief PCAN FD transport layer — hardware I/O, frame routing and callback wrappers.
  * @version 1.0
@@ -18,10 +18,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "util/conversion.hpp"
 
-#include "pcan_fd_transfer.hpp"
+#include "pcan_fd_transport.hpp"
 
 /**
- * @brief Constructs a PcanFdTransfer and initialises the owned frame objects.
+ * @brief Constructs a PcanFdTransport and initialises the owned frame objects.
  *
  * @details Creates PcanShortFrame and PcanLongFrame instances using the
  *          short_frame and long_frame sub-configs embedded in @p cfg.
@@ -29,7 +29,7 @@
  * @param cfg Unified configuration holding PCAN hardware settings and both
  *            short-frame and long-frame sub-configs.
  */
-PcanFdTransfer::PcanFdTransfer(const Config& cfg)
+PcanFdTransport::PcanFdTransport(const Config& cfg)
     : cfg_(cfg)
 {
     short_frame_ = std::make_unique<PcanShortFrame>(*this, cfg_.short_frame);
@@ -39,7 +39,7 @@ PcanFdTransfer::PcanFdTransfer(const Config& cfg)
 /**
  * @brief Destructor. Calls stop_rx() then shutdown() to release the PCAN channel.
  */
-PcanFdTransfer::~PcanFdTransfer()
+PcanFdTransport::~PcanFdTransport()
 {
     stop_rx();
     shutdown();
@@ -51,11 +51,11 @@ PcanFdTransfer::~PcanFdTransfer()
  * @param tag Prefix label identifying the call site.
  * @param st  PCAN status code to translate via CAN_GetErrorText().
  */
-void PcanFdTransfer::print_pcan_err(const char* tag, TPCANStatus st)
+void PcanFdTransport::print_pcan_err(const char* tag, TPCANStatus st)
 {
     char err[256] = {0};
     CAN_GetErrorText(st, 0, err);
-    RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransfer"),
+    RCLCPP_ERROR(rclcpp::get_logger("PcanFdTransport"),
                  "%s: %s (0x%X)", tag, err, static_cast<unsigned>(st));
 }
 
@@ -65,7 +65,7 @@ void PcanFdTransfer::print_pcan_err(const char* tag, TPCANStatus st)
  * @return true  if the channel was opened successfully (or was already open).
  * @return false if CAN_InitializeFD() returned an error.
  */
-bool PcanFdTransfer::init(void)
+bool PcanFdTransport::init(void)
 {
     if (initialized_) {
         return true;
@@ -83,7 +83,7 @@ bool PcanFdTransfer::init(void)
 
     if (!cfg_.long_frame.quiet) {
         RCLCPP_INFO(
-            rclcpp::get_logger("PcanFdTransfer"),
+            rclcpp::get_logger("PcanFdTransport"),
             "PCAN init OK. dev=%u short_tx=0x%03X short_rx=0x%03X "
             "long_tx=0x%03X long_rx=0x%03X",
             cfg_.long_frame.device_count,
@@ -99,7 +99,7 @@ bool PcanFdTransfer::init(void)
 /**
  * @brief Releases the PCAN FD channel via CAN_Uninitialize(). No-op if not initialised.
  */
-void PcanFdTransfer::shutdown(void)
+void PcanFdTransport::shutdown(void)
 {
     if (!initialized_) {
         return;
@@ -116,7 +116,7 @@ void PcanFdTransfer::shutdown(void)
  * @param len Payload length in bytes (0–64).
  * @return DLC code (0–15).
  */
-uint8_t PcanFdTransfer::len_to_dlc(uint8_t len)
+uint8_t PcanFdTransport::len_to_dlc(uint8_t len)
 {
     if (len <= 8u)  return len;
     if (len <= 12u) return 9u;
@@ -134,7 +134,7 @@ uint8_t PcanFdTransfer::len_to_dlc(uint8_t len)
  * @param dlc DLC code (0–15).
  * @return Payload length in bytes, or 0 for an invalid DLC.
  */
-uint8_t PcanFdTransfer::dlc_to_len(uint8_t dlc)
+uint8_t PcanFdTransport::dlc_to_len(uint8_t dlc)
 {
     static const uint8_t map[16] = {
         0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 12u, 16u, 20u, 24u, 32u, 48u, 64u
@@ -150,7 +150,7 @@ uint8_t PcanFdTransfer::dlc_to_len(uint8_t dlc)
  * @param length Payload length (must be ≤ 64).
  * @return true on success, false on invalid arguments or send failure.
  */
-bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t length)
+bool PcanFdTransport::send_data(uint16_t can_id, const uint8_t* data, uint8_t length)
 {
     if (!initialized_ || data == nullptr || length > 64u) {
         return false;
@@ -186,7 +186,7 @@ bool PcanFdTransfer::send_data(uint16_t can_id, const uint8_t* data, uint8_t len
  * @param data64  Pointer to exactly 64 bytes of payload.
  * @return true on success, false on invalid arguments or send failure.
  */
-bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
+bool PcanFdTransport::send_frame64(uint16_t can_id, const uint8_t data64[64])
 {
     if (!initialized_ || data64 == nullptr) {
         return false;
@@ -222,7 +222,7 @@ bool PcanFdTransfer::send_frame64(uint16_t can_id, const uint8_t data64[64])
  *          Each data frame is offered to short_frame_ first, then to long_frame_.
  *          Status frames and unrecognised CAN IDs are logged when quiet mode is off.
  */
-void PcanFdTransfer::poll_rx(void)
+void PcanFdTransport::poll_rx(void)
 {
     if (!initialized_) {
         return;
@@ -269,7 +269,7 @@ void PcanFdTransfer::poll_rx(void)
         }
 
         if (!cfg_.long_frame.quiet) {
-            RCLCPP_WARN(rclcpp::get_logger("PcanFdTransfer"),
+            RCLCPP_WARN(rclcpp::get_logger("PcanFdTransport"),
                         "Unknown CAN ID: 0x%03X len=%u", can_id, data_len);
         }
     }
@@ -283,7 +283,7 @@ void PcanFdTransfer::poll_rx(void)
  * @details Call this after all Long / Short handler callbacks have been registered
  *          in au_4d_radar.cpp.  Internally guarantees the order init() → start_rx().
  */
-void PcanFdTransfer::start(void)
+void PcanFdTransport::start(void)
 {
     init();
     start_rx();
@@ -296,19 +296,19 @@ void PcanFdTransfer::start(void)
  *          PcanLongFrame / PcanShortFrame, otherwise frames will not be delivered.
  *          If the thread is already running this is a no-op.
  */
-void PcanFdTransfer::start_rx(void)
+void PcanFdTransport::start_rx(void)
 {
     if (rx_running_.load()) {
         return;
     }
     rx_running_.store(true);
-    rx_thread_ = std::thread(&PcanFdTransfer::receiveThread, this);
+    rx_thread_ = std::thread(&PcanFdTransport::receiveThread, this);
 }
 
 /**
  * @brief Signals the receive thread to stop and joins it.
  */
-void PcanFdTransfer::stop_rx(void)
+void PcanFdTransport::stop_rx(void)
 {
     rx_running_.store(false);
     if (rx_thread_.joinable()) {
@@ -323,7 +323,7 @@ void PcanFdTransfer::stop_rx(void)
  *          are delivered independently to both PcanLongFrameHandler and
  *          PcanShortFrameHandler.
  */
-void PcanFdTransfer::receiveThread(void)
+void PcanFdTransport::receiveThread(void)
 {
     while (rx_running_.load()) {
         poll_rx();
@@ -337,10 +337,10 @@ void PcanFdTransfer::receiveThread(void)
  * @brief Returns a reference to the owned PcanLongFrame instance.
  *
  * @details Handlers call send_long_payload() directly on the returned object
- *          instead of going through the now-removed PcanFdTransfer::send_payload()
+ *          instead of going through the now-removed PcanFdTransport::send_payload()
  *          wrapper.  Asserts that long_frame_ has been constructed.
  */
-PcanLongFrame& PcanFdTransfer::long_frame()
+PcanLongFrame& PcanFdTransport::long_frame()
 {
     return *long_frame_;
 }
@@ -350,10 +350,10 @@ PcanLongFrame& PcanFdTransfer::long_frame()
  *
  * @details Handlers call send_short_command_with_data() directly on the returned
  *          object instead of going through the now-removed
- *          PcanFdTransfer::send_cmd_with_data() wrapper.
+ *          PcanFdTransport::send_cmd_with_data() wrapper.
  *          Asserts that short_frame_ has been constructed.
  */
-PcanShortFrame& PcanFdTransfer::short_frame()
+PcanShortFrame& PcanFdTransport::short_frame()
 {
     return *short_frame_;
 }

@@ -13,7 +13,7 @@
 
 #include "pcan_short_frame_handler.hpp"
 #include "pcan_long_frame_handler.hpp"
-#include "pcan_fd_transfer.hpp"
+#include "pcan_fd_transport.hpp"
 #include "adm_tf_listener.hpp"
 
 namespace au_4d_radar
@@ -61,7 +61,7 @@ private:
     /* ----- internal members --------------------------------------------- */
 
     /* CAN transport — must be constructed before the handlers that reference it */
-    PcanFdTransfer         can_fd_transfer_;
+    PcanFdTransport         can_fd_transfer_;
 
     /* Frame handlers hold a reference to can_fd_transfer_ */
     PcanShortFrameHandler  can_short_handler_;

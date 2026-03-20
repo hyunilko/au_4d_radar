@@ -1,14 +1,13 @@
 /**
  * @file pcan_short_frame_handler.cpp
  * @author antonioko@au-sensor.com
- * @brief High-level short-frame handler: ACK tracking, unique-ID cache, and time-sync. Business logic
+ * @brief High-level short-frame handler: time-sync. Business logic
  * @version 1.0
  * @date 2026-03
  *
  * @copyright Copyright AU (c) 2026
  *
- * @details Wraps PcanFdTransfer's short-frame callback to provide:
- *          - Per-device unique-ID caching (get_device_uniq_id).
+ * @details Wraps PcanFdTransport's short-frame callback to provide:
  *          - Automatic TIME_SYNC response whenever a HEART_BEAT is received.
  */
 
@@ -28,7 +27,7 @@ namespace au_4d_radar
  * @brief Constructs a PcanShortFrameHandler.
  *
  * @param node   Pointer to the owning radar node (for publishing and logging).
- * @param can    Reference to PcanShortFrame (direct, no PcanFdTransfer indirection).
+ * @param can    Reference to PcanShortFrame (direct, no PcanFdTransport indirection).
  * @param logger ROS2 logger; defaults to "PcanShortFrameHandler".
  * @param quiet  If true, suppresses INFO/DEBUG log output.
  */
@@ -58,140 +57,14 @@ void PcanShortFrameHandler::start(void)
 }
 
 /**
- * @brief Deregisters the PcanShortFrame RX callback and resets internal state.
+ * @brief Deregisters the PcanShortFrame RX callback.
  */
 void PcanShortFrameHandler::stop(void)
 {
     can_short_.set_rx_callback(PcanShortFrame::ShortFrameRxCallback{});
 
-    std::lock_guard<std::mutex> lk(mtx_);
-    ack_cb_ = AckCallback{};
-    ack_map_.clear();
-    uniq_id_map_.clear();
-
     if (!quiet_) {
         RCLCPP_INFO(logger_, "PcanShortFrameHandler stopped");
-    }
-}
-
-/**
- * @brief Registers a callback notified each time any ACK frame is received.
- *
- * @param cb Callback: void(const AckMessage&). Pass empty to deregister.
- */
-void PcanShortFrameHandler::set_ack_callback(AckCallback cb)
-{
-    std::lock_guard<std::mutex> lk(mtx_);
-    ack_cb_ = std::move(cb);
-}
-
-/**
- * @brief Blocks until an ACK for (dev_id, cmd) is received or the timeout expires.
- *
- * @param dev_id  Device index to wait for.
- * @param cmd     Command whose ACK is expected.
- * @param out     Populated with the received AckMessage on success.
- * @param timeout Maximum wait duration.
- * @return true if ACK received, false on timeout.
- */
-bool PcanShortFrameHandler::wait_for_ack(uint8_t dev_id,
-                                          ShortCanCmd cmd,
-                                          AckMessage& out,
-                                          std::chrono::milliseconds timeout)
-{
-    const AckKey key = make_ack_key(dev_id, cmd);
-
-    std::unique_lock<std::mutex> lk(mtx_);
-    const bool ok = cv_.wait_for(lk, timeout, [this, key] {
-        return ack_map_.find(key) != ack_map_.end();
-    });
-
-    if (!ok) {
-        if (!quiet_) {
-            RCLCPP_WARN(logger_,
-                        "wait_for_ack timeout dev=%u cmd=0x%08X timeout_ms=%lld",
-                        dev_id, static_cast<uint32_t>(cmd),
-                        static_cast<long long>(timeout.count()));
-        }
-        return false;
-    }
-
-    out = ack_map_.at(key);
-    return true;
-}
-
-/**
- * @brief Returns the last known unique ID reported by a device.
- *
- * @param dev_id       Device index to query.
- * @param uniq_id_out  Set to the cached unique ID on success.
- * @return true if at least one non-zero unique ID has been received, false otherwise.
- */
-bool PcanShortFrameHandler::get_device_uniq_id(uint8_t dev_id,
-                                                uint32_t& uniq_id_out) const
-{
-    std::lock_guard<std::mutex> lk(mtx_);
-    const auto it = uniq_id_map_.find(dev_id);
-    if (it == uniq_id_map_.end()) {
-        return false;
-    }
-    uniq_id_out = it->second;
-    return true;
-}
-
-/**
- * @brief Builds a 64-bit ACK map key from a device index and command value.
- *
- * @param dev_id Device index (stored in upper 32 bits).
- * @param cmd    Command identifier (stored in lower 32 bits).
- * @return Combined AckKey.
- */
-PcanShortFrameHandler::AckKey
-PcanShortFrameHandler::make_ack_key(uint8_t dev_id, ShortCanCmd cmd)
-{
-    return (static_cast<AckKey>(dev_id) << 32) |
-            static_cast<uint32_t>(cmd);
-}
-
-/**
- * @brief Stores a received ACK, caches the device unique ID, and wakes any waiters.
- *
- * @param dev_id  Source device index.
- * @param cmd     Command the ACK corresponds to.
- * @param uniq_id Unique ID in the frame (cached if non-zero).
- * @param data    Optional payload carried in the ACK.
- */
-void PcanShortFrameHandler::handle_cmd_ack(uint8_t dev_id, ShortCanCmd cmd,
-                                            uint32_t uniq_id,
-                                            const std::vector<uint8_t>& data)
-{
-    AckMessage msg;
-    msg.dev_id  = dev_id;
-    msg.cmd     = cmd;
-    msg.uniq_id = uniq_id;
-    msg.payload = data;
-    msg.rx_time = std::chrono::steady_clock::now();
-
-    AckCallback cb_copy;
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        ack_map_[make_ack_key(dev_id, cmd)] = msg;
-        if (uniq_id != 0u) {
-            uniq_id_map_[dev_id] = uniq_id;
-        }
-        cb_copy = ack_cb_;
-    }
-
-    cv_.notify_all();
-
-    if (!quiet_) {
-        RCLCPP_INFO(logger_,
-                    "[SHORT ACK] dev=%u cmd=0x%08X uniq_id=0x%08X payload_len=%zu",
-                    dev_id, static_cast<uint32_t>(cmd), uniq_id, data.size());
-    }
-
-    if (cb_copy) {
-        cb_copy(msg);
     }
 }
 
@@ -207,6 +80,8 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd,
                                                 uint32_t uniq_id,
                                                 const std::vector<uint8_t>& data)
 {
+    (void)data;
+
     switch (cmd) {
         case ShortCanCmd::HI:
             can_short_.send_short_command_ack(dev_id, uniq_id, cmd);
@@ -220,11 +95,8 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd,
         case ShortCanCmd::SENSOR_START:
         case ShortCanCmd::SENSOR_STOP:
         case ShortCanCmd::RESET:
-            /* ACK frames — no action required */
-            break;
-
         case ShortCanCmd::ACK:
-            handle_cmd_ack(dev_id, cmd, uniq_id, data);
+            /* ACK frames — no action required */
             break;
 
         default:

@@ -20,7 +20,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "util/conversion.hpp"
-#include "pcan_fd_transfer.hpp"
+#include "pcan_fd_transport.hpp"
 
 /* CustomTP wire format constants */
 static constexpr uint8_t  HDR_PBF_MASK      = 0x80u;  /* bit7: 1=LAST, 0=MIDDLE */
@@ -38,7 +38,7 @@ static constexpr uint32_t APP_PDU_HEADER_LENGTH = 16u;
  * @param transport Reference to the transport layer used for TX.
  * @param cfg  Long-frame configuration (CAN IDs, device count, RX buffer size).
  */
-PcanLongFrame::PcanLongFrame(PcanFdTransfer& transport, const Config& cfg)
+PcanLongFrame::PcanLongFrame(PcanFdTransport& transport, const Config& cfg)
     : transport_(transport)
     , cfg_(cfg)
 {

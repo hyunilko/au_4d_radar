@@ -21,7 +21,7 @@
 #include <mutex>
 #include <vector>
 
-class PcanFdTransfer;
+class PcanFdTransport;
 
 enum class ShortCanCmd : uint32_t
 {
@@ -50,7 +50,7 @@ public:
 
     using Config = PcanShortFrameConfig;
 
-    explicit PcanShortFrame(PcanFdTransfer& transport, const Config& cfg = Config{});
+    explicit PcanShortFrame(PcanFdTransport& transport, const Config& cfg = Config{});
 
     bool send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd);
     bool send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd rcv_cmd);
@@ -65,7 +65,7 @@ private:
     void process_short_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
 private:
-    PcanFdTransfer& transport_;
+    PcanFdTransport& transport_;
     Config cfg_;
     ShortFrameRxCallback rx_cb_;
     std::mutex mtx_;

@@ -48,7 +48,7 @@ add_library(device_au_radar_node SHARED
   src/message_parse.cpp
   src/pcan_long_frame_handler.cpp
   src/pcan_short_frame_handler.cpp
-  src/pcan_fd_transfer.cpp
+  src/pcan_fd_transport.cpp
   src/pcan_short_frame.cpp
   src/pcan_long_frame.cpp  
   src/adm_tf_listener.cpp)

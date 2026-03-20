@@ -30,7 +30,7 @@ device_au_radar_node*    device_au_radar_node::instance_ = nullptr;
  */
 device_au_radar_node::device_au_radar_node(const rclcpp::NodeOptions& options)
     : Node("device_au_radar_node", options)
-    , can_fd_transfer_(PcanFdTransfer::Config{})
+    , can_fd_transfer_(PcanFdTransport::Config{})
     , can_short_handler_(this, can_fd_transfer_.short_frame())
     , can_long_handler_(this, can_fd_transfer_.long_frame())
     , adm_tf_listener_(this)

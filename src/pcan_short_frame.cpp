@@ -20,11 +20,11 @@
 #include <utility>
 
 #include "rclcpp/rclcpp.hpp"
-#include "pcan_fd_transfer.hpp"
+#include "pcan_fd_transport.hpp"
 #include "util/conversion.hpp"
 
 static constexpr uint8_t CMD_FIELD_LEN    = 4u;   /* CMD(4B BE) */
-static constexpr uint8_t UNIQ_ID_LEN      = 4u;   /* ACK unique ID */
+static constexpr uint8_t UNIQ_ID_LEN      = 4u;   /* unique ID(4B BE) */
 static constexpr uint8_t SHORT_MAX_BYTES  = 56u;  /* 64B - CMD(4B) - unique ID(4B) */
 
 /**
@@ -33,7 +33,7 @@ static constexpr uint8_t SHORT_MAX_BYTES  = 56u;  /* 64B - CMD(4B) - unique ID(4
  * @param transport Reference to the transport layer used for sending frames.
  * @param cfg  Short-frame configuration (TX/RX base IDs, device count).
  */
-PcanShortFrame::PcanShortFrame(PcanFdTransfer& transport, const Config& cfg)
+PcanShortFrame::PcanShortFrame(PcanFdTransport& transport, const Config& cfg)
     : transport_(transport)
     , cfg_(cfg)
 {

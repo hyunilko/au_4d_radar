@@ -23,7 +23,7 @@ extern "C" {
  *   - Route received frames to PcanShortFrame / PcanLongFrame (poll_rx)
  *
  */
-class PcanFdTransfer
+class PcanFdTransport
 {
 public:
     struct Config
@@ -44,8 +44,8 @@ public:
         PcanShortFrameConfig short_frame{};
     };
 
-    explicit PcanFdTransfer(const Config& cfg);
-    ~PcanFdTransfer();
+    explicit PcanFdTransport(const Config& cfg);
+    ~PcanFdTransport();
 
     /* ----- Channel initialisation / release -------------------------------- */
     bool init(void);

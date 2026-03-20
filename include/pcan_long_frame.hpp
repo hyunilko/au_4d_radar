@@ -17,7 +17,7 @@
 #include <functional>
 #include <vector>
 
-class PcanFdTransfer;
+class PcanFdTransport;
 
 struct PcanLongFrameConfig
 {
@@ -35,7 +35,7 @@ public:
 
     using Config = PcanLongFrameConfig;
 
-    explicit PcanLongFrame(PcanFdTransfer& transport, const Config& cfg = Config{});
+    explicit PcanLongFrame(PcanFdTransport& transport, const Config& cfg = Config{});
 
     bool send_long_payload(uint8_t dev_id, uint32_t msg_id, const uint8_t* payload, int payload_len);
     bool handle_long_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len);
@@ -63,7 +63,7 @@ private:
     void process_long_tp_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len);
 
 private:
-    PcanFdTransfer& transport_;
+    PcanFdTransport& transport_;
     Config cfg_;
     LongFrameRxCallback rx_cb_;
     std::vector<RxState> rx_states_;
