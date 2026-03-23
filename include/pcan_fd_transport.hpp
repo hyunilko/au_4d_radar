@@ -14,14 +14,19 @@ extern "C" {
 #include "pcan_short_frame.hpp"
 
 /**
+ * @file pcan_fd_transport.hpp
+ * @author antonioko@au-sensor.com
  * @brief Raw CAN FD transport layer.
+ * @version 2.0
+ * @date 2026-03
+ *
+ * @copyright Copyright AU (c) 2026
  *
  * Responsibilities:
  *   - Open / close the PCAN FD channel (init / shutdown)
  *   - Transmit raw CAN FD frames (send_data, send_frame64)
  *   - Drive the receive loop (start_rx / stop_rx / receiveThread)
  *   - Route received frames to PcanShortFrame / PcanLongFrame (poll_rx)
- *
  */
 class PcanFdTransport
 {
@@ -53,7 +58,7 @@ public:
 
     /**
      * @brief Convenience method that calls init() then start_rx() in order.
-     *        Call this after all handler callbacks have been registered in au_4d_radar.cpp.
+     *        Call this after all handler callbacks have been registered.
      */
     void start(void);
 
@@ -97,18 +102,33 @@ public:
     bool send_frame64(uint16_t can_id, const uint8_t data64[64]);
 
 private:
+    /* ----- Tuning constants ------------------------------------------------ */
+    static constexpr int TX_MAX_RETRIES    = 3;
+    static constexpr int TX_RETRY_DELAY_US = 1000;  /* µs between retries  */
+    static constexpr int EPOLL_TIMEOUT_MS  = 50;    /* epoll_wait timeout   */
+
     /* ----- Internal hardware helpers --------------------------------------- */
     static uint8_t len_to_dlc(uint8_t len);
     static uint8_t dlc_to_len(uint8_t dlc);
     static void    print_pcan_err(const char* tag, TPCANStatus st);
 
+    bool do_can_write(TPCANMsgFD& msg);
+
     /* ----- Internal receive loop ------------------------------------------ */
     void poll_rx(void);
     void receiveThread(void);
 
+    /**
+     * @brief [5] Obtains the PCAN Linux receive-event fd and registers it with epoll.
+     * @return epoll fd on success, -1 on failure (falls back to usleep polling).
+     */
+    int  setup_epoll(void);
+
 private:
     Config cfg_;
-    bool   initialized_{false};
+
+    /* [1] Atomic: safe to read from the receive thread without holding io_mtx_. */
+    std::atomic<bool> initialized_{false};
 
     std::mutex io_mtx_;
 
@@ -118,4 +138,8 @@ private:
     /* Receive thread */
     std::thread       rx_thread_;
     std::atomic<bool> rx_running_{false};
+
+    /* [5] epoll/event fds for event-driven receive (-1 = not available) */
+    int rx_epoll_fd_{-1};
+    int rx_event_fd_{-1};
 };
