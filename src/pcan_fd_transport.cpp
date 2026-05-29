@@ -296,6 +296,10 @@ void PcanFdTransport::poll_rx(void)
             continue;
         }
 
+        if (short_frame_ && short_frame_->handle_ack_can_frame(can_id, rx.DATA, data_len)) {
+            continue;
+        }
+
         if (!cfg_.long_frame.quiet) {
             RCLCPP_WARN(rclcpp::get_logger("PcanFdTransport"),
                         "Unknown CAN ID: 0x%03X len=%u", can_id, data_len);

@@ -8,9 +8,9 @@
  * @copyright Copyright AU (c) 2026
  *
  * @details Wire format — Application Layer:
- *          Bytes 00–03: Command ID (4 B, big-endian)
- *          Bytes 04–07: Unique ID   (4 B, big-endian)
- *          Bytes 08+  : Payload     (up to 56 bytes)
+ *          Bytes 00–02: Command ID (3 B, big-endian)
+ *          Bytes 03–05: Unique ID   (4 B, big-endian)
+ *          Bytes 07+  : Payload     (up to 57 bytes)
  */
 
 #include <cstring>
@@ -23,9 +23,9 @@
 
 #include "pcan_short_frame.hpp"
 
-static constexpr uint8_t CMD_FIELD_LEN    = 4u;   /* CMD(4B BE) */
+static constexpr uint8_t CMD_FIELD_LEN    = 3u;   /* CMD(3B BE) */
 static constexpr uint8_t UNIQ_ID_LEN      = 4u;   /* unique ID(4B BE) */
-static constexpr uint8_t SHORT_MAX_BYTES  = 56u;  /* 64B - CMD(4B) - unique ID(4B) */
+static constexpr uint8_t SHORT_MAX_BYTES  = 57u;  /* 64B - CMD(3B) - unique ID(4B) */
 
 /**
  * @brief Constructs a PcanShortFrame storing the transport reference and config.
@@ -51,6 +51,12 @@ void PcanShortFrame::set_rx_callback(ShortFrameRxCallback cb)
     rx_cb_ = std::move(cb);
 }
 
+void PcanShortFrame::set_ack_rx_callback(AckRxCallback cb)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    ack_rx_cb_ = std::move(cb);
+}
+
 /**
  * @brief Sends a short command frame with no additional payload.
  *
@@ -61,7 +67,7 @@ void PcanShortFrame::set_rx_callback(ShortFrameRxCallback cb)
  */
 bool PcanShortFrame::send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd cmd)
 {
-    return send_short_command_with_data(dev_id, cmd, uniq_id, nullptr, 0u);
+    return send_short_command_with_data(dev_id, static_cast<uint32_t>(cmd), uniq_id, nullptr, 0u);
 }
 
 /**
@@ -75,14 +81,15 @@ bool PcanShortFrame::send_short_command(uint8_t dev_id, uint32_t uniq_id, ShortC
 bool PcanShortFrame::send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, ShortCanCmd rcv_cmd)
 {
     uint8_t frame[CMD_FIELD_LEN] = {0u, };
-    Conversion::u32_to_be(static_cast<uint32_t>(rcv_cmd), &frame[0]);
-    return send_short_command_with_data(dev_id, ShortCanCmd::ACK, uniq_id, frame, CMD_FIELD_LEN);
+    uint32_t cmd_ack = static_cast<uint32_t>(rcv_cmd) | CAN_CMD_ACK;
+    Conversion::u24_to_be(cmd_ack, &frame[0]);
+    return send_short_command_with_data(dev_id, cmd_ack, uniq_id, frame, CMD_FIELD_LEN);
 }
 
 /**
  * @brief Sends a short command frame with an optional extra payload.
  *
- * @details Builds CMD(4B BE) + UNIQ_ID(4B BE) + payload and calls send_data().
+ * @details Builds CMD(3B BE) + UNIQ_ID(4B BE) + payload and calls send_data().
  *          Payload is silently truncated to 56 bytes if it exceeds that limit.
  *
  * @param dev_id      Target device index (0 … device_count-1).
@@ -93,7 +100,7 @@ bool PcanShortFrame::send_short_command_ack(uint8_t dev_id, uint32_t uniq_id, Sh
  * @return true on success, false on error.
  */
 bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
-                                                  ShortCanCmd cmd,
+                                                  uint32_t cmd,
                                                   uint32_t uniq_id,
                                                   const uint8_t* payload,
                                                   uint8_t payload_len)
@@ -112,21 +119,28 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
     }
 
     uint8_t frame[CMD_FIELD_LEN + UNIQ_ID_LEN + SHORT_MAX_BYTES] = {0u, };
-    Conversion::u32_to_be(static_cast<uint32_t>(cmd), &frame[0]);
-    Conversion::u32_to_be(uniq_id, &frame[4]);
+    Conversion::u24_to_be(cmd, &frame[0]);
+    Conversion::u32_to_be(uniq_id, &frame[CMD_FIELD_LEN]);
 
     if ((payload != nullptr) && (payload_len > 0u)) {
         std::memcpy(&frame[CMD_FIELD_LEN + UNIQ_ID_LEN], payload, payload_len);
     }
 
-    const uint16_t can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
+    uint16_t can_id;
+
+    if((cmd & 0xFFu) == CAN_CMD_ACK)
+        can_id = ((dev_id << PcanFdTransport::CAN_DEVICE_ID_SHIFT) | cfg_.ack_base_id);
+        //can_id = static_cast<uint16_t>(cfg_.ack_base_id + dev_id);
+    else
+        can_id = ((dev_id << PcanFdTransport::CAN_DEVICE_ID_SHIFT) | cfg_.tx_base_id);
+        //can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
     const uint8_t total_len = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN + payload_len);
 
     const bool ok = transport_.send_data(can_id, frame, total_len);
     if (!ok && !cfg_.quiet) {
         RCLCPP_ERROR(rclcpp::get_logger("PcanShortFrame"),
                      "send_short_command_with_data: send_data failed (dev=%u, cmd=0x%08X)",
-                     dev_id, static_cast<uint32_t>(cmd));
+                     dev_id, cmd);
     }
 
     return ok;
@@ -141,11 +155,11 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
  */
 bool PcanShortFrame::is_short_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const
 {
-    if (can_id < cfg_.rx_base_id) {
+    if ((can_id & PcanFdTransport::CAN_TP_ID_MASK) != cfg_.rx_base_id) {
         return false;
     }
 
-    const uint32_t dev = can_id - cfg_.rx_base_id;
+    const uint32_t dev = static_cast<uint8_t>((can_id & PcanFdTransport::CAN_DEVICE_ID_MASK) >> PcanFdTransport::CAN_DEVICE_ID_SHIFT);
     if (dev >= cfg_.device_count) {
         return false;
     }
@@ -173,14 +187,71 @@ bool PcanShortFrame::handle_short_can_frame(uint32_t can_id, const uint8_t* data
     return true;
 }
 
+bool PcanShortFrame::is_ack_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const
+{
+    if ((can_id & PcanFdTransport::CAN_TP_ID_MASK) != cfg_.ack_base_id) {
+        return false;
+    }
+
+    const uint32_t dev = static_cast<uint8_t>((can_id & PcanFdTransport::CAN_DEVICE_ID_MASK) >> PcanFdTransport::CAN_DEVICE_ID_SHIFT);
+    if (dev >= cfg_.device_count) {
+        return false;
+    }
+
+    dev_id_out = static_cast<uint8_t>(dev);
+    return true;
+}
+
+bool PcanShortFrame::handle_ack_can_frame(uint32_t can_id, const uint8_t* data, uint8_t data_len)
+{
+    uint8_t dev_id = 0u;
+    if (!is_ack_rx_can_id(can_id, dev_id)) {
+        return false;
+    }
+
+    process_ack_frame(dev_id, data, data_len);
+    return true;
+}
+
+void PcanShortFrame::process_ack_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len)
+{
+    if (data == nullptr) {
+        return;
+    }
+    if (data_len < CMD_FIELD_LEN) {
+        RCLCPP_WARN(rclcpp::get_logger("PcanShortFrame"),
+                    "process_ack_frame: frame too short (dev=%u, len=%u)",
+                    dev_id, data_len);
+        return;
+    }
+
+    const uint32_t cmd_raw = Conversion::be_to_u24(&data[0]);
+    const auto cmd = static_cast<ShortCanCmd>(cmd_raw);
+
+    uint32_t uniq_id = 0u;
+    uint8_t payload_offset = CMD_FIELD_LEN;
+    if (data_len >= static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN)) {
+        uniq_id = Conversion::be_to_u32(&data[CMD_FIELD_LEN]);
+        payload_offset = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN);
+    }
+
+    const uint8_t payload_len = (data_len > payload_offset) ? static_cast<uint8_t>(data_len - payload_offset) : 0u;
+    const std::vector<uint8_t> payload(data + payload_offset, data + payload_offset + payload_len);
+
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (ack_rx_cb_) {
+        ack_rx_cb_(dev_id, cmd, uniq_id, payload);
+    }
+}
+
 /**
  * @brief Parses a raw short-frame payload and invokes the registered RX callback.
  *
- * @details Extracts CMD(4B BE), UNIQ_ID(4B BE), and optional payload, then calls rx_cb_.
+ * @details Extracts CMD(3B BE), UNIQ_ID(4B BE), and optional payload, then calls rx_cb_.
  *
  * @param dev_id   Device index derived from the received CAN ID.
  * @param data     Raw frame payload bytes.
- * @param data_len Payload length (must be ≥ 4 to carry the CMD field).
+ * @param data_len Payload length (must be ≥ 3 to carry the CMD field).
  */
 void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, uint8_t data_len)
 {
@@ -194,7 +265,7 @@ void PcanShortFrame::process_short_frame(uint8_t dev_id, const uint8_t* data, ui
         return;
     }
 
-    const uint32_t cmd_raw = Conversion::be_to_u32(&data[0]);
+    const uint32_t cmd_raw = Conversion::be_to_u24(&data[0]);
     const auto cmd = static_cast<ShortCanCmd>(cmd_raw);
 
     uint32_t uniq_id = 0u;

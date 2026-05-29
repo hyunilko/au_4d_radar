@@ -63,7 +63,7 @@ namespace au_4d_radar
         /* Constants */
         static constexpr size_t   kMaxQueueSize     = 1000u;
         static constexpr size_t   kTsPacketHdrSize  = 36u;
-        static constexpr size_t   kBufferSize        = 5000u;
+        static constexpr size_t   kBufferSize        = 10000u;
         static constexpr uint32_t kMsgTypeOffset     = 4u;
 
         /* Back-pointer to the owning ROS2 node */

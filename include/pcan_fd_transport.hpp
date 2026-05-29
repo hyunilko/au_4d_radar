@@ -35,10 +35,33 @@ public:
     {
         TPCANHandle handle = PCAN_USBBUS1;
 
+        // Case 0 : nom=1Mbps / data=8Mbps
+        // Nominal SP = 80%, Data SP = 80%
+        // const char* bitrate_fd =
+        //     "f_clock_mhz=80, "
+        //     "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
+        //     "data_brp=1, data_tseg1=7, data_tseg2=2, data_sjw=2";
+
+       // Case 1 : nom=1Mbps / data=4Mbps
+        // Nominal SP = 80%, Data SP = 80%
+        // const char* bitrate_fd =
+        //     "f_clock_mhz=80, "
+        //     "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
+        //     "data_brp=1, data_tseg1=15, data_tseg2=4, data_sjw=4";
+
+        // Case 2 : nom=1Mbps / data=2Mbps
+        // Nominal SP = 80%, Data SP = 75%
         const char* bitrate_fd =
             "f_clock_mhz=80, "
             "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
-            "data_brp=1, data_tseg1=7, data_tseg2=2, data_sjw=2";
+            "data_brp=1, data_tseg1=29, data_tseg2=10, data_sjw=10";
+
+       // Case 3 : nom=0.5Mbps / data=1Mbps
+        // Nominal SP = 80%, Data SP = 75%
+        // const char* bitrate_fd =
+        //     "f_clock_mhz=80, "
+        //     "nom_brp=1, nom_tseg1=127, nom_tseg2=32, nom_sjw=32, "
+        //     "data_brp=1, data_tseg1=63, data_tseg2=16, data_sjw=16";
 
         bool brs_on = true;
 
@@ -48,6 +71,10 @@ public:
         /* Short(Command) frame config: CAN IDs, device count, quiet */
         PcanShortFrameConfig short_frame{};
     };
+
+    static constexpr int CAN_DEVICE_ID_SHIFT    = 8U;
+    static constexpr int CAN_DEVICE_ID_MASK     = 0x700U;
+    static constexpr int CAN_TP_ID_MASK         = 0xFFU;
 
     explicit PcanFdTransport(const Config& cfg);
     ~PcanFdTransport();

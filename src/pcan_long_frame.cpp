@@ -93,7 +93,7 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
     Conversion::u32_to_be(payload_size, &buff[12]);
     std::memcpy(&buff[APP_PDU_HD_LEN], payload, static_cast<size_t>(payload_len));
 
-    const uint16_t can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
+    const uint16_t can_id = ((dev_id << PcanFdTransport::CAN_DEVICE_ID_SHIFT) | cfg_.tx_base_id);
 
     uint8_t frame[64] = {0u, };
     int32_t pos = 0;
@@ -139,11 +139,11 @@ bool PcanLongFrame::send_long_payload(uint8_t dev_id, uint32_t msg_id, const uin
  */
 bool PcanLongFrame::is_long_rx_can_id(uint32_t can_id, uint8_t& dev_id_out) const
 {
-    if (can_id < cfg_.rx_base_id) {
+    if ((can_id & PcanFdTransport::CAN_TP_ID_MASK) != cfg_.rx_base_id) {
         return false;
     }
 
-    const uint32_t dev = can_id - cfg_.rx_base_id;
+    const uint32_t dev = static_cast<uint8_t>((can_id & PcanFdTransport::CAN_DEVICE_ID_MASK) >> PcanFdTransport::CAN_DEVICE_ID_SHIFT);
     if (dev >= cfg_.device_count) {
         return false;
     }
@@ -246,7 +246,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
 
     const uint32_t frame_id = Conversion::be_to_u32(&st.buf[0]);
     const uint32_t frame_count = Conversion::be_to_u32(&st.buf[4]);
-    const uint32_t msg_id = Conversion::be_to_u32(&st.buf[8]);
+    const uint32_t cmd_id = Conversion::be_to_u32(&st.buf[8]);
     const uint32_t payload_len = Conversion::be_to_u32(&st.buf[12]);
     const uint64_t needed = APP_PDU_HD_LEN + static_cast<uint64_t>(payload_len);
 
@@ -276,7 +276,7 @@ void PcanLongFrame::process_long_tp_frame(uint8_t dev_id, const uint8_t* data, u
     }
 
     if (rx_cb_) {
-        rx_cb_(dev_id, frame_id, frame_count, msg_id, std::move(payload_out));
+        rx_cb_(dev_id, frame_id, frame_count, cmd_id, std::move(payload_out));
     }
 
     st.reset();

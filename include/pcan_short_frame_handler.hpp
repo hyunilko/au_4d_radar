@@ -30,7 +30,7 @@ namespace au_4d_radar
 
         PcanShortFrame& can_short_;
         rclcpp::Logger  logger_;
-        bool            quiet_ = false;
+        bool            quiet_ = true;
 
         device_au_radar_node* radar_node_;
     };

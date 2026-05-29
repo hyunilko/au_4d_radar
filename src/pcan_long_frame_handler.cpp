@@ -242,9 +242,7 @@ void PcanLongFrameHandler::processThread()
                     std::lock_guard<std::mutex> qlk(client_queue_mutex_);
                     (void)client_queue_cvs_[unique_id]; /* default-construct */
                 }
-                client_threads_.emplace(
-                    unique_id,
-                    std::thread(&PcanLongFrameHandler::clientThread, this, unique_id));
+                client_threads_.emplace(unique_id, std::thread(&PcanLongFrameHandler::clientThread, this, unique_id));
             }
         }
 

@@ -40,8 +40,10 @@ struct TsPacketHeader
     uint16_t pkt_num;
 };
 
+#define POINT_CLOUD_DOWN_SCALE      1
+
 static constexpr size_t   POINT_STEP_SIZE      = 20u;
-static constexpr uint32_t MAX_POINTS_PER_PKT   = 60u;
+static constexpr uint32_t MAX_POINTS_PER_PKT   = 400u; // 60u -> 400u
 static constexpr uint32_t MAX_TOTAL_POINTS     = 1600u;
 static constexpr uint16_t MAX_PKTS             = 28u;
 
@@ -184,13 +186,21 @@ void MessageParser::makeRadarPointCloud2Msg(uint8_t* p_buff,
     static constexpr double kDeg2Rad = M_PI / 180.0;
 
     for (uint32_t i = 0u; i < header.point_num; ++i) {
+#if (POINT_CLOUD_DOWN_SCALE)
+        idx += 2u;  /* skip index field */
+        const float range     = Conversion::u16ToFloat(Conversion::toU16(&p_buff[idx]), 0.01); idx += 2u;
+        const float velocity  = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        const float azimuth   = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        const float elevation = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        const float amplitude = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+#else
         idx += 4u;  /* skip index field */
-        const float range     = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        const float velocity  = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        const float azimuth   = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        const float elevation = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        const float amplitude = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-
+        const float range     = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        const float velocity  = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        const float azimuth   = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        const float elevation = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        const float amplitude = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+#endif
         const float cos_el = std::cos(static_cast<float>(elevation * kDeg2Rad));
         const float sin_el = std::sin(static_cast<float>(elevation * kDeg2Rad));
         const float cos_az = std::cos(static_cast<float>(azimuth * kDeg2Rad));
@@ -216,8 +226,7 @@ void MessageParser::makeRadarPointCloud2Msg(uint8_t* p_buff,
 
     if (complete) {
         if (cloud_msg.point_step == 0u) {
-            RCLCPP_WARN(logger_,
-                        "point_step is 0, skipping incomplete frame (mid-stream start)");
+            RCLCPP_WARN(logger_, "point_step is 0, skipping incomplete frame (mid-stream start)");
             complete = false;
             return;
         }
@@ -251,7 +260,7 @@ void MessageParser::makeRadarScanMsg(uint8_t* p_buff,
         return;
     }
 
-    complete      = (header.total_pkts == header.pkt_num);
+    complete       = (header.total_pkts == header.pkt_num);
     stamp_tv_sec_  = header.ts_sec;
     stamp_tv_nsec_ = header.ts_nsec;
 
@@ -261,12 +270,21 @@ void MessageParser::makeRadarScanMsg(uint8_t* p_buff,
 
     for (uint32_t i = 0u; i < header.point_num; ++i) {
         radar_msgs::msg::RadarReturn ret{};
+#if (POINT_CLOUD_DOWN_SCALE)
+        idx += 2u;  /* skip index field */
+        ret.range            = Conversion::u16ToFloat(Conversion::toU16(&p_buff[idx]), 0.01); idx += 2u;
+        ret.doppler_velocity = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        ret.azimuth          = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        ret.elevation        = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+        ret.amplitude        = Conversion::s16ToFloat(Conversion::toS16(&p_buff[idx]), 0.01); idx += 2u;
+#else
         idx += 4u;  /* skip index field */
-        ret.range            = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.doppler_velocity = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.azimuth          = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.elevation        = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
-        ret.amplitude        = Conversion::convertToFloat(&p_buff[idx]); idx += 4;
+        ret.range            = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        ret.doppler_velocity = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        ret.azimuth          = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        ret.elevation        = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+        ret.amplitude        = Conversion::convertToFloat(&p_buff[idx]); idx += 4u;
+#endif
         radar_scan_msg.returns.push_back(ret);
     }
 }

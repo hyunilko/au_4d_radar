@@ -2,7 +2,7 @@ client_hostname: auradar-eeeeeeee
 POINT_CLOUD2: true
 MESSAGE_NUMBER: 2
 radars:
-  90787b2c: # 0
+  3207df55: # 0
     frame_id: RADAR_FRONT
     xyz: [0, 0.2332, 0.06]
     rpy: [0, 0, -90]

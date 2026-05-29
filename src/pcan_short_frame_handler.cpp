@@ -95,9 +95,6 @@ void PcanShortFrameHandler::handle_short_frame(uint8_t dev_id, ShortCanCmd cmd,
         case ShortCanCmd::SENSOR_START:
         case ShortCanCmd::SENSOR_STOP:
         case ShortCanCmd::RESET:
-        case ShortCanCmd::ACK:
-            /* ACK frames — no action required */
-            break;
 
         default:
             RCLCPP_WARN(logger_,
@@ -144,7 +141,7 @@ bool PcanShortFrameHandler::send_time_sync(uint8_t dev_id, uint32_t uniq_id)
     }
 
     return can_short_.send_short_command_with_data(
-               dev_id, ShortCanCmd::TIME_SYNC, uniq_id, payload, sizeof(payload));
+               dev_id, static_cast<uint32_t>(ShortCanCmd::TIME_SYNC), uniq_id, payload, sizeof(payload));
 }
 
 } // namespace au_4d_radar

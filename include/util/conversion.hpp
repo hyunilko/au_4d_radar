@@ -231,6 +231,31 @@ public:
     {
         return reinterpret_cast<void*>(addr);
     }
+
+    static inline uint16_t toU16(const uint8_t *p)
+    {
+        uint16_t val;
+        memcpy(&val, p, sizeof(val));   /* alignment-safe, zero-copy */
+        return val;
+    }
+
+    static inline int16_t toS16(const uint8_t *p)
+    {
+        int16_t val;
+        memcpy(&val, p, sizeof(val));
+        return val;
+    }
+
+    static inline float u16ToFloat(uint16_t raw, float resolution)
+    {
+        return static_cast<float>(raw) * resolution;
+    }
+
+    static inline float s16ToFloat(int16_t raw, float resolution)
+    {
+        return static_cast<float>(raw) * resolution;
+    }
+
 };
 
 #endif // CONVERSION_HPP
