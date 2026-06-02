@@ -44,17 +44,17 @@ public:
 
        // Case 1 : nom=1Mbps / data=4Mbps
         // Nominal SP = 80%, Data SP = 80%
-        // const char* bitrate_fd =
-        //     "f_clock_mhz=80, "
-        //     "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
-        //     "data_brp=1, data_tseg1=15, data_tseg2=4, data_sjw=4";
-
-        // Case 2 : nom=1Mbps / data=2Mbps
-        // Nominal SP = 80%, Data SP = 75%
         const char* bitrate_fd =
             "f_clock_mhz=80, "
             "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
-            "data_brp=1, data_tseg1=29, data_tseg2=10, data_sjw=10";
+            "data_brp=1, data_tseg1=14, data_tseg2=5, data_sjw=5";
+
+        // Case 2 : nom=1Mbps / data=2Mbps
+        // Nominal SP = 80%, Data SP = 75%
+        // const char* bitrate_fd =
+        //     "f_clock_mhz=80, "
+        //     "nom_brp=1, nom_tseg1=63, nom_tseg2=16, nom_sjw=16, "
+        //     "data_brp=1, data_tseg1=14, data_tseg2=5, data_sjw=5";
 
        // Case 3 : nom=0.5Mbps / data=1Mbps
         // Nominal SP = 80%, Data SP = 75%
