@@ -130,10 +130,9 @@ bool PcanShortFrame::send_short_command_with_data(uint8_t dev_id,
 
     if((cmd & 0xFFu) == CAN_CMD_ACK)
         can_id = ((dev_id << PcanFdTransport::CAN_DEVICE_ID_SHIFT) | cfg_.ack_base_id);
-        //can_id = static_cast<uint16_t>(cfg_.ack_base_id + dev_id);
     else
         can_id = ((dev_id << PcanFdTransport::CAN_DEVICE_ID_SHIFT) | cfg_.tx_base_id);
-        //can_id = static_cast<uint16_t>(cfg_.tx_base_id + dev_id);
+        
     const uint8_t total_len = static_cast<uint8_t>(CMD_FIELD_LEN + UNIQ_ID_LEN + payload_len);
 
     const bool ok = transport_.send_data(can_id, frame, total_len);
